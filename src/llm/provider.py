@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings
 class LLMConfig(BaseSettings):
     provider: str = "openai"
     base_url: str = "https://api-inference.modelscope.cn/v1/"
-    api_key: str = "ms-16092521-19e5-4d48-a119-b576fabc5158"
+    api_key: str = "xxx"
     model: str = "Qwen/Qwen3.5-35B-A3B"
     temperature: float = 0.7
     max_tokens: int = 8192
