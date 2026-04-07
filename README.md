@@ -1,6 +1,6 @@
 # novel-write AI 小说写作助手
 
-一个基于 Streamlit 和 LangChain 的 AI 小说写作项目，融合了原有的 CLI 和 Core 功能，提供了友好的 Web 界面。
+一个基于 Streamlit 和 LangChain 的 AI 小说写作项目，提供了友好的 Web 界面。
 
 ## 功能特性
 
