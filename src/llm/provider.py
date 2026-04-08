@@ -15,7 +15,8 @@ class LLMConfig(BaseSettings):
 
     class Config:
         env_file = ".env"
-        env_prefix = "INKOS_LLM_"
+        env_prefix = "inkos_llm_"
+        case_sensitive = False
 
 class LLMClient:
     def __init__(self, config: LLMConfig):

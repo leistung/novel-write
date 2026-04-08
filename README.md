@@ -37,7 +37,7 @@ streamlit run app.py
 ## 项目结构
 
 ```
-inkos-st/
+novel-write/
 ├── app.py              # 主应用文件
 ├── requirements.txt    # 依赖文件
 ├── .env.example        # 环境变量示例

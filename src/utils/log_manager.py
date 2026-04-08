@@ -20,7 +20,7 @@ class LogManager:
         
     def _setup_logger(self):
         """配置日志记录器"""
-        self.logger = logging.getLogger("inkos")
+        self.logger = logging.getLogger("novel-write")
         self.logger.setLevel(logging.DEBUG)
         
         # 避免重复添加handler
@@ -30,7 +30,7 @@ class LogManager:
         # 文件handler - 完整日志
         today = datetime.now().strftime("%Y-%m-%d")
         file_handler = logging.FileHandler(
-            os.path.join(self.log_dir, f"inkos_{today}.log"),
+            os.path.join(self.log_dir, f"novel-write_{today}.log"),
             encoding='utf-8'
         )
         file_handler.setLevel(logging.DEBUG)
