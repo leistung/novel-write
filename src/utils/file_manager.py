@@ -85,7 +85,12 @@ class FileManager:
             f.write(content)
         return file_path
 
-
+    def save_particle_ledger(self, book_id: int, content: str) -> str:
+        """保存粒子账本"""
+        file_path = os.path.join(self.get_book_dir(book_id), "particle_ledger.md")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return file_path
 
     def save_chapter_content(self, book_id: int, chapter_number: int, content: str) -> str:
         """保存章节内容"""
@@ -173,7 +178,13 @@ class FileManager:
                 return f.read()
         return None
 
-
+    def load_particle_ledger(self, book_id: int) -> Optional[str]:
+        """加载粒子账本"""
+        file_path = os.path.join(self.get_book_dir(book_id), "particle_ledger.md")
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return None
 
     def load_chapter_content(self, book_id: int, chapter_number: int) -> Optional[str]:
         """加载章节内容"""

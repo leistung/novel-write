@@ -22,7 +22,7 @@ class TokenUsage:
         self.total_tokens = total_tokens
 
 class WriteChapterOutput:
-    def __init__(self, chapter_number: int, title: str, content: str, word_count: int, pre_write_check: str, post_settlement: str, updated_state: str, updated_hooks: str, chapter_summary: str, updated_subplots: str, updated_emotional_arcs: str, updated_character_matrix: str, post_write_errors: List[Dict[str, Any]], post_write_warnings: List[Dict[str, Any]], token_usage: Optional[TokenUsage] = None):
+    def __init__(self, chapter_number: int, title: str, content: str, word_count: int, pre_write_check: str, post_settlement: str, updated_state: str, updated_ledger: str, updated_hooks: str, chapter_summary: str, updated_subplots: str, updated_emotional_arcs: str, updated_character_matrix: str, post_write_errors: List[Dict[str, Any]], post_write_warnings: List[Dict[str, Any]], token_usage: Optional[TokenUsage] = None):
         self.chapter_number = chapter_number
         self.title = title
         self.content = content
@@ -30,6 +30,7 @@ class WriteChapterOutput:
         self.pre_write_check = pre_write_check
         self.post_settlement = post_settlement
         self.updated_state = updated_state
+        self.updated_ledger = updated_ledger
         self.updated_hooks = updated_hooks
         self.chapter_summary = chapter_summary
         self.updated_subplots = updated_subplots
@@ -57,7 +58,7 @@ class WriterAgent(BaseAgent):
         story_bible = self._read_file(book_dir, "story_bible.md") if book_dir else "(故事圣经尚未创建)"
         volume_outline = self._read_file(book_dir, "volume_outline.md") if book_dir else "(卷纲尚未创建)"
         current_state = self._read_file(book_dir, "current_state.md") if book_dir else "(当前状态尚未创建)"
-
+        ledger = self._read_file(book_dir, "particle_ledger.md") if book_dir else "(资源账本尚未创建)"
         hooks = self._read_file(book_dir, "pending_hooks.md") if book_dir else "(伏笔池尚未创建)"
         chapter_summaries = self._read_file(book_dir, "chapter_summaries.md") if book_dir else "(章节摘要尚未创建)"
         subplot_board = self._read_file(book_dir, "subplot_board.md") if book_dir else "(支线进度板尚未创建)"
@@ -82,6 +83,7 @@ class WriterAgent(BaseAgent):
             'story_bible': story_bible,
             'volume_outline': volume_outline,
             'current_state': current_state,
+            'ledger': ledger if genre_profile.get('numericalSystem') else '',
             'hooks': hooks,
             'word_count': word_count_override or book.get('chapter_words', 3000),
             'external_context': external_context,
@@ -114,6 +116,7 @@ class WriterAgent(BaseAgent):
             'title': creative['title'],
             'content': creative['content'],
             'current_state': current_state,
+            'ledger': ledger if genre_profile.get('numericalSystem') else '',
             'hooks': hooks,
             'chapter_summaries': chapter_summaries,
             'subplot_board': subplot_board,
@@ -139,7 +142,7 @@ class WriterAgent(BaseAgent):
             pre_write_check=creative['pre_write_check'],
             post_settlement=settlement['post_settlement'],
             updated_state=settlement['updated_state'],
-
+            updated_ledger=settlement['updated_ledger'],
             updated_hooks=settlement['updated_hooks'],
             chapter_summary=settlement['chapter_summary'],
             updated_subplots=settlement['updated_subplots'],
@@ -236,6 +239,7 @@ class WriterAgent(BaseAgent):
         story_bible = params['story_bible']
         volume_outline = params['volume_outline']
         current_state = params['current_state']
+        ledger = params['ledger']
         hooks = params['hooks']
         word_count = params['word_count']
         external_context = params['external_context']
@@ -246,7 +250,7 @@ class WriterAgent(BaseAgent):
         language = params['language']
 
         context_block = f"\n## 外部指令\n以下是来自外部系统的创作指令，请在本章中融入：\n\n{external_context}\n" if external_context else ""
-
+        ledger_block = f"\n## 资源账本\n{ledger}\n" if ledger else ""
         summaries_block = f"\n## 章节摘要（全部历史章节压缩上下文）\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
         subplot_block = f"\n## 支线进度板\n{subplot_board}\n" if subplot_board != "(支线进度板尚未创建)" else ""
         emotional_block = f"\n## 情感弧线\n{emotional_arcs}\n" if emotional_arcs != "(情感弧线尚未创建)" else ""
@@ -272,7 +276,7 @@ class WriterAgent(BaseAgent):
 {chapter_plan_block}
 ## Current State
 {current_state}
-
+{ledger_block}
 ## Plot Threads
 {hooks}
 {summaries_block}{subplot_block}{emotional_block}{matrix_block}
@@ -299,7 +303,7 @@ Requirements:
 {chapter_plan_block}
 ## 当前状态卡
 {current_state}
-
+{ledger_block}
 ## 伏笔池
 {hooks}
 {summaries_block}{subplot_block}{emotional_block}{matrix_block}
@@ -363,6 +367,7 @@ Requirements:
         title = params['title']
         content = params['content']
         current_state = params['current_state']
+        ledger = params['ledger']
         hooks = params['hooks']
         chapter_summaries = params['chapter_summaries']
         subplot_board = params['subplot_board']
@@ -386,7 +391,7 @@ Requirements:
         # 第二阶段：Reflector - 将观察结果合并到状态文件中
         settler_system = self._build_settler_system_prompt(book, genre_profile, resolved_language)
         settler_user = self._build_settler_user_prompt(
-            chapter_number, title, content, current_state, hooks,
+            chapter_number, title, content, current_state, ledger, hooks,
             chapter_summaries, subplot_board, emotional_arcs, character_matrix,
             volume_outline, observations
         )
@@ -467,12 +472,12 @@ Please extract all factual changes according to the format specified in the syst
         )}"""
 
     def _build_settler_user_prompt(self, chapter_number: int, title: str, content: str,
-                                    current_state: str, hooks: str,
+                                    current_state: str, ledger: str, hooks: str,
                                     chapter_summaries: str, subplot_board: str,
                                     emotional_arcs: str, character_matrix: str,
                                     volume_outline: str, observations: str) -> str:
         """构建Settler用户提示"""
-
+        ledger_block = f"\n## 当前资源账本\n{ledger}\n" if ledger else ""
         summaries_block = f"\n## 已有章节摘要\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
         subplot_block = f"\n## 当前支线进度板\n{subplot_board}\n" if subplot_board != "(支线进度板尚未创建)" else ""
         emotional_block = f"\n## 当前情感弧线\n{emotional_arcs}\n" if emotional_arcs != "(情感弧线尚未创建)" else ""
@@ -491,7 +496,7 @@ Please extract all factual changes according to the format specified in the syst
 
 ## 当前状态卡
 {current_state}
-
+{ledger_block}
 ## 当前伏笔池
 {hooks}
 {summaries_block}{subplot_block}{emotional_block}{matrix_block}
@@ -512,7 +517,7 @@ Please extract all factual changes according to the format specified in the syst
         return {
             'post_settlement': extract_block('POST_SETTLEMENT'),
             'updated_state': extract_block('UPDATED_STATE'),
-
+            'updated_ledger': extract_block('UPDATED_LEDGER') if genre_profile.get('numericalSystem') else "",
             'updated_hooks': extract_block('UPDATED_HOOKS'),
             'chapter_summary': extract_block('CHAPTER_SUMMARY'),
             'updated_subplots': extract_block('UPDATED_SUBPLOTS'),
@@ -572,7 +577,7 @@ Please extract all factual changes according to the format specified in the syst
             'revisions': 0,
             'updated_state': output.updated_state,
             'updated_hooks': output.updated_hooks,
-
+            'updated_ledger': output.updated_ledger,
             'updated_subplots': output.updated_subplots,
             'updated_emotional_arcs': output.updated_emotional_arcs,
             'updated_character_matrix': output.updated_character_matrix

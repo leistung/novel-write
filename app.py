@@ -70,7 +70,7 @@ def init_db():
         volume_outline TEXT,
         book_rules TEXT,
         current_state TEXT NOT NULL,
-
+        particle_ledger TEXT,
         pending_hooks TEXT,
         chapter_summaries TEXT,
         subplot_board TEXT,
@@ -522,7 +522,7 @@ def show_book_settings(book):
     book_rules = file_manager.load_book_rules(book['id'])
     current_state = file_manager.load_current_state(book['id'])
     pending_hooks = file_manager.load_pending_hooks(book['id'])
-
+    particle_ledger = file_manager.load_particle_ledger(book['id'])
     chapter_summaries = file_manager.load_chapter_summaries(book['id'])
     subplot_board = file_manager.load_subplot_board(book['id'])
     emotional_arcs = file_manager.load_emotional_arcs(book['id'])
@@ -609,7 +609,7 @@ def show_book_settings(book):
                     file_manager.save_book_rules(book['id'], output['book_rules'])
                     file_manager.save_current_state(book['id'], output['current_state'])
                     file_manager.save_pending_hooks(book['id'], output['pending_hooks'])
-
+                    file_manager.save_particle_ledger(book['id'], "# 粒子账本\n\n暂无数据")
                     file_manager.save_chapter_summaries(book['id'], "# 章节摘要\n\n暂无数据")
                     file_manager.save_subplot_board(book['id'], "# 支线进度板\n\n暂无数据")
                     file_manager.save_emotional_arcs(book['id'], "# 情感弧线\n\n暂无数据")
@@ -680,7 +680,9 @@ def show_book_settings(book):
             with st.expander("🎣 伏笔池", expanded=False):
                 st.markdown(pending_hooks)
         
-
+        if particle_ledger:
+            with st.expander("📊 粒子账本", expanded=False):
+                st.markdown(particle_ledger)
         
         if chapter_summaries:
             with st.expander("📝 章节摘要", expanded=False):
@@ -851,7 +853,8 @@ def show_write_chapters(book):
                 # 更新所有状态文件
                 if result['updated_state']:
                     file_manager.save_current_state(book['id'], result['updated_state'])
-
+                if result['updated_ledger']:
+                    file_manager.save_particle_ledger(book['id'], result['updated_ledger'])
                 if result['updated_hooks']:
                     file_manager.save_pending_hooks(book['id'], result['updated_hooks'])
                 if result['chapter_summary']:
@@ -891,6 +894,7 @@ def show_md_files(book):
         {"name": "书籍规则", "key": "book_rules", "load": file_manager.load_book_rules, "save": file_manager.save_book_rules, "description": "写作规则、禁止出现的内容、写作特点等"},
         {"name": "当前状态", "key": "current_state", "load": file_manager.load_current_state, "save": file_manager.save_current_state, "description": "当前状态、所处地点、涉及的人物、所处支线"},
         {"name": "伏笔池", "key": "pending_hooks", "load": file_manager.load_pending_hooks, "save": file_manager.save_pending_hooks, "description": "设定的钩子和伏笔、预计哪里填坑、当前状态是否填坑"},
+        {"name": "粒子账本", "key": "particle_ledger", "load": file_manager.load_particle_ledger, "save": file_manager.save_particle_ledger, "description": "粒子账本"},
         {"name": "章节摘要", "key": "chapter_summaries", "load": file_manager.load_chapter_summaries, "save": file_manager.save_chapter_summaries, "description": "每一章的章节概要"},
         {"name": "支线进度板", "key": "subplot_board", "load": file_manager.load_subplot_board, "save": file_manager.save_subplot_board, "description": "支线进度"},
         {"name": "情感弧线", "key": "emotional_arcs", "load": file_manager.load_emotional_arcs, "save": file_manager.save_emotional_arcs, "description": "角色的情感状态、各个主角当前的情感状态、以及造成的原因"},
