@@ -866,15 +866,7 @@ def show_write_chapters(book):
                 )
                 
                 file_manager.save_chapter_content(book['id'], current_chapter_num, result['content'])
-                file_manager.save_chapter_metadata(book['id'], current_chapter_num, {
-                    'title': result['title'],
-                    'pov': '未知',
-                    'setting': '未知',
-                    'emotional_beat': '未知',
-                    'rule_violations': [],
-                    'detection_score': detection_result.get('score'),
-                    'detection_provider': detection_result.get('provider')
-                })
+
                 
                 # 更新所有状态文件
                 if result['updated_state']:
