@@ -913,7 +913,7 @@ def show_md_files(book):
             content = md_file['load'](book['id'])
             
             # 创建文本编辑器
-            edited_content = st.text_area("文件内容", value=content or "", height=400)
+            edited_content = st.text_area("文件内容", value=content or "", height=400, key=f"md_{md_file['key']}")
             
             # 保存按钮
             if st.button(f"保存{md_file['name']}", type="primary"):
