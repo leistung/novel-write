@@ -6,14 +6,18 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 
+# 添加项目根目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
+# 加载环境变量
 load_dotenv()
 
+# 初始化数据库
 def init_db():
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     
+    # 创建书籍表
     c.execute('''
     CREATE TABLE IF NOT EXISTS books (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,31 +37,7 @@ def init_db():
         updated_at TEXT NOT NULL
     )''')
     
-    try:
-        c.execute("ALTER TABLE books ADD COLUMN language TEXT DEFAULT 'zh'")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE books ADD COLUMN parent_book_id INTEGER")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE books ADD COLUMN fanfic_mode TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE books ADD COLUMN outline TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE books ADD COLUMN writing_style TEXT")
-    except:
-        pass
-    
+    # 创建章节表
     c.execute('''
     CREATE TABLE IF NOT EXISTS chapters (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,36 +61,7 @@ def init_db():
         FOREIGN KEY (book_id) REFERENCES books (id)
     )''')
     
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN audit_issues TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN review_note TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN detection_score REAL")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN detection_provider TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN detected_at TEXT")
-    except:
-        pass
-    
-    try:
-        c.execute("ALTER TABLE chapters ADD COLUMN token_usage TEXT")
-    except:
-        pass
-    
+    # 创建书籍状态表
     c.execute('''
     CREATE TABLE IF NOT EXISTS book_state (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,6 +84,7 @@ def init_db():
         FOREIGN KEY (book_id) REFERENCES books (id)
     )''')
     
+    # 创建设置表
     c.execute('''
     CREATE TABLE IF NOT EXISTS settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,23 +96,29 @@ def init_db():
     conn.commit()
     conn.close()
 
+# 初始化数据库
 init_db()
 
+# 设置页面配置
 st.set_page_config(
     page_title="novel-write - AI 小说写作助手",
     page_icon="📚",
     layout="wide"
 )
 
+# 导入所需模块
 from src.llm.provider import llm_client
 from src.pipeline.runner import PipelineRunner, PipelineConfig
 from src.utils.file_manager import FileManager
 from src.utils.log_manager import LogManager
 
+# 初始化文件管理器和日志管理器
 file_manager = FileManager('data')
 log_manager = LogManager('')
 
+# 数据库操作函数
 def get_books():
+    """获取所有书籍"""
     conn = sqlite3.connect('novel-write.db')
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -170,6 +128,7 @@ def get_books():
     return books
 
 def get_book_chapters(book_id):
+    """获取书籍的所有章节"""
     conn = sqlite3.connect('novel-write.db')
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -179,6 +138,7 @@ def get_book_chapters(book_id):
     return chapters
 
 def get_book_by_id(book_id):
+    """根据ID获取书籍"""
     conn = sqlite3.connect('novel-write.db')
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -189,6 +149,7 @@ def get_book_by_id(book_id):
     return book
 
 def get_chapter_by_id(chapter_id):
+    """根据ID获取章节"""
     conn = sqlite3.connect('novel-write.db')
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -199,6 +160,7 @@ def get_chapter_by_id(chapter_id):
     return chapter
 
 def create_book(title, genre, platform, chapter_words, target_chapters, brief, outline='', writing_style='', language='zh', parent_book_id=None, fanfic_mode=None):
+    """创建新书籍"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     now = datetime.now().isoformat()
@@ -221,6 +183,7 @@ def create_book(title, genre, platform, chapter_words, target_chapters, brief, o
     return book_id
 
 def create_chapter(book_id, chapter_num, title, content, word_count, status='drafted', summary=None, audit_score=None, audit_issues=None, review_note=None, detection_score=None, detection_provider=None, detected_at=None, token_usage=None, revisions=0):
+    """创建新章节"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     now = datetime.now().isoformat()
@@ -235,6 +198,7 @@ def create_chapter(book_id, chapter_num, title, content, word_count, status='dra
     conn.close()
 
 def update_chapter(chapter_id, title=None, content=None, word_count=None, status=None, summary=None, audit_score=None, audit_issues=None, review_note=None, revisions=None):
+    """更新章节"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     now = datetime.now().isoformat()
@@ -272,11 +236,12 @@ def update_chapter(chapter_id, title=None, content=None, word_count=None, status
     
     params.append(chapter_id)
     
-    c.execute(f'UPDATE chapters SET {", ".join(updates)} WHERE id = ?', params)
+    c.execute(f'UPDATE chapters SET {{", ".join(updates)}} WHERE id = ?', params)
     conn.commit()
     conn.close()
 
 def delete_book(book_id):
+    """删除书籍"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     c.execute('DELETE FROM chapters WHERE book_id = ?', (book_id,))
@@ -285,7 +250,16 @@ def delete_book(book_id):
     conn.commit()
     conn.close()
 
+def delete_chapters_after(book_id, chapter_num):
+    """删除指定章节之后的所有章节"""
+    conn = sqlite3.connect('novel-write.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM chapters WHERE book_id = ? AND chapter_num > ?', (book_id, chapter_num))
+    conn.commit()
+    conn.close()
+
 def export_book(book_id, format='txt'):
+    """导出整本书"""
     book = get_book_by_id(book_id)
     if not book:
         return None
@@ -320,6 +294,7 @@ def export_book(book_id, format='txt'):
     return filepath
 
 def export_chapter(chapter_id, format='txt'):
+    """导出单个章节"""
     chapter = get_chapter_by_id(chapter_id)
     if not chapter:
         return None
@@ -346,6 +321,7 @@ def export_chapter(chapter_id, format='txt'):
     return filepath
 
 def get_setting(key, default=None):
+    """获取设置"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     c.execute('SELECT value FROM settings WHERE key = ?', (key,))
@@ -354,6 +330,7 @@ def get_setting(key, default=None):
     return row[0] if row else default
 
 def set_setting(key, value):
+    """设置设置"""
     conn = sqlite3.connect('novel-write.db')
     c = conn.cursor()
     now = datetime.now().isoformat()
@@ -364,6 +341,7 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
+# 初始化会话状态
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 'books'
 
@@ -373,7 +351,15 @@ if 'selected_book_id' not in st.session_state:
 if 'selected_chapter_id' not in st.session_state:
     st.session_state.selected_chapter_id = None
 
+if 'show_rewrite_form' not in st.session_state:
+    st.session_state.show_rewrite_form = False
+
+if 'rewrite_confirmed' not in st.session_state:
+    st.session_state.rewrite_confirmed = False
+
+# 页面函数
 def show_books_list():
+    """显示书籍列表"""
     st.title("📚 我的书籍")
     
     books = get_books()
@@ -404,6 +390,7 @@ def show_books_list():
                     st.rerun()
 
 def show_create_book():
+    """显示创建新书页面"""
     st.title("📝 创建新书")
     
     with st.form(key="create_book_form"):
@@ -444,6 +431,7 @@ def show_create_book():
             st.rerun()
 
 def show_book_detail():
+    """显示书籍详情页面"""
     book_id = st.session_state.selected_book_id
     if not book_id:
         st.error("未选择书籍")
@@ -461,7 +449,8 @@ def show_book_detail():
     
     st.title(f"📖 {book['title']}")
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["书籍信息", "基础设定", "章节列表", "续写章节", "导出"])
+    # 创建标签页
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["书籍信息", "基础设定", "章节列表", "续写章节", "MD文件管理", "导出"])
     
     with tab1:
         show_book_info(book)
@@ -476,9 +465,13 @@ def show_book_detail():
         show_write_chapters(book)
     
     with tab5:
+        show_md_files(book)
+    
+    with tab6:
         show_export(book)
 
 def show_book_info(book):
+    """显示书籍信息"""
     st.markdown("### 书籍信息")
     
     col1, col2 = st.columns(2)
@@ -519,23 +512,11 @@ def show_book_info(book):
         st.session_state.selected_book_id = None
         st.rerun()
 
-def backup_book_data(book_id):
-    """备份书籍数据"""
-    import shutil
-    import os
-    from datetime import datetime
-    
-    book_dir = file_manager.get_book_dir(book_id)
-    if not os.path.exists(book_dir):
-        return False
-    
-    backup_dir = os.path.join('data', f'backup_{book_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
-    shutil.copytree(book_dir, backup_dir)
-    return True
-
 def show_book_settings(book):
+    """显示书籍基础设定"""
     st.markdown("### 基础设定")
     
+    # 加载所有MD文件
     story_bible = file_manager.load_story_bible(book['id'])
     volume_outline = file_manager.load_volume_outline(book['id'])
     book_rules = file_manager.load_book_rules(book['id'])
@@ -622,11 +603,17 @@ def show_book_settings(book):
                     pipeline = PipelineRunner(llm_client)
                     output = pipeline.create_book_foundation(book_dict, external_context)
                     
+                    # 保存所有MD文件
                     file_manager.save_story_bible(book['id'], output['story_bible'])
                     file_manager.save_volume_outline(book['id'], output['volume_outline'])
                     file_manager.save_book_rules(book['id'], output['book_rules'])
                     file_manager.save_current_state(book['id'], output['current_state'])
                     file_manager.save_pending_hooks(book['id'], output['pending_hooks'])
+                    file_manager.save_particle_ledger(book['id'], "# 粒子账本\n\n暂无数据")
+                    file_manager.save_chapter_summaries(book['id'], "# 章节摘要\n\n暂无数据")
+                    file_manager.save_subplot_board(book['id'], "# 支线进度板\n\n暂无数据")
+                    file_manager.save_emotional_arcs(book['id'], "# 情感弧线\n\n暂无数据")
+                    file_manager.save_character_matrix(book['id'], "# 角色交互矩阵\n\n暂无数据")
                     
                     log_manager.log_settings_generation(book['id'], book['title'])
                     
@@ -660,6 +647,7 @@ def show_book_settings(book):
                             pipeline = PipelineRunner(llm_client)
                             output = pipeline.create_book_foundation(book_dict, external_context)
                             
+                            # 保存所有MD文件
                             file_manager.save_story_bible(book['id'], output['story_bible'])
                             file_manager.save_volume_outline(book['id'], output['volume_outline'])
                             file_manager.save_book_rules(book['id'], output['book_rules'])
@@ -671,6 +659,7 @@ def show_book_settings(book):
                         except Exception as e:
                             st.error(f"生成失败: {str(e)}")
         
+        # 显示所有MD文件
         if story_bible:
             with st.expander("📖 故事圣经", expanded=False):
                 st.markdown(story_bible)
@@ -711,15 +700,8 @@ def show_book_settings(book):
             with st.expander("👥 角色交互矩阵", expanded=False):
                 st.markdown(character_matrix)
 
-def delete_chapters_after(book_id, chapter_num):
-    """删除指定章节之后的所有章节"""
-    conn = sqlite3.connect('novel-write.db')
-    c = conn.cursor()
-    c.execute('DELETE FROM chapters WHERE book_id = ? AND chapter_num > ?', (book_id, chapter_num))
-    conn.commit()
-    conn.close()
-
 def show_chapters_list(book):
+    """显示章节列表"""
     st.markdown("### 章节列表")
     
     chapters = get_book_chapters(book['id'])
@@ -794,6 +776,7 @@ def show_chapters_list(book):
             st.markdown(chapter['content'])
 
 def show_write_chapters(book):
+    """显示续写章节页面"""
     st.markdown("### 续写章节")
     
     chapters = get_book_chapters(book['id'])
@@ -815,7 +798,7 @@ def show_write_chapters(book):
     
     context = st.text_area("创作指导", placeholder="可以输入本章重点、场景描述等（可选）", height=100)
     
-    words_override = st.number_input("本章字数（可选）", min_value=0, max_value=50000, value=0, help="留空则使用默认字数")
+    words_override = st.number_input("本章字数（可选）", min_value=0, max_value=50000, value=3000, help="留空则使用默认字数")
     
     if st.button("开始写作", type="primary"):
         progress_bar = st.progress(0)
@@ -867,7 +850,6 @@ def show_write_chapters(book):
                 
                 file_manager.save_chapter_content(book['id'], current_chapter_num, result['content'])
 
-                
                 # 更新所有状态文件
                 if result['updated_state']:
                     file_manager.save_current_state(book['id'], result['updated_state'])
@@ -901,7 +883,46 @@ def show_write_chapters(book):
         st.success("章节生成完成！")
         st.rerun()
 
+def show_md_files(book):
+    """显示和管理MD文件"""
+    st.markdown("### MD文件管理")
+    
+    # 定义MD文件类型
+    md_files = [
+        {"name": "故事圣经", "key": "story_bible", "load": file_manager.load_story_bible, "save": file_manager.save_story_bible, "description": "小说设定、世界观、男女主角、修炼体系/都市体系、规则等"},
+        {"name": "卷纲", "key": "volume_outline", "load": file_manager.load_volume_outline, "save": file_manager.save_volume_outline, "description": "所有章节划分、几卷、每卷多少章、什么内容、大纲、所有支线等"},
+        {"name": "书籍规则", "key": "book_rules", "load": file_manager.load_book_rules, "save": file_manager.save_book_rules, "description": "写作规则、禁止出现的内容、写作特点等"},
+        {"name": "当前状态", "key": "current_state", "load": file_manager.load_current_state, "save": file_manager.save_current_state, "description": "当前状态、所处地点、涉及的人物、所处支线"},
+        {"name": "伏笔池", "key": "pending_hooks", "load": file_manager.load_pending_hooks, "save": file_manager.save_pending_hooks, "description": "设定的钩子和伏笔、预计哪里填坑、当前状态是否填坑"},
+        {"name": "粒子账本", "key": "particle_ledger", "load": file_manager.load_particle_ledger, "save": file_manager.save_particle_ledger, "description": "粒子账本"},
+        {"name": "章节摘要", "key": "chapter_summaries", "load": file_manager.load_chapter_summaries, "save": file_manager.save_chapter_summaries, "description": "每一章的章节概要"},
+        {"name": "支线进度板", "key": "subplot_board", "load": file_manager.load_subplot_board, "save": file_manager.save_subplot_board, "description": "支线进度"},
+        {"name": "情感弧线", "key": "emotional_arcs", "load": file_manager.load_emotional_arcs, "save": file_manager.save_emotional_arcs, "description": "角色的情感状态、各个主角当前的情感状态、以及造成的原因"},
+        {"name": "角色交互矩阵", "key": "character_matrix", "load": file_manager.load_character_matrix, "save": file_manager.save_character_matrix, "description": "角色矩阵、各个角色的交集和关系"},
+    ]
+    
+    # 为每个MD文件创建一个标签页
+    tabs = st.tabs([f"{md_file['name']}" for md_file in md_files])
+    
+    for i, (tab, md_file) in enumerate(zip(tabs, md_files)):
+        with tab:
+            st.markdown(f"### {md_file['name']}")
+            st.markdown(f"**描述**: {md_file['description']}")
+            
+            # 加载文件内容
+            content = md_file['load'](book['id'])
+            
+            # 创建文本编辑器
+            edited_content = st.text_area("文件内容", value=content or "", height=400)
+            
+            # 保存按钮
+            if st.button(f"保存{md_file['name']}", type="primary"):
+                md_file['save'](book['id'], edited_content)
+                st.success(f"{md_file['name']}保存成功！")
+                st.rerun()
+
 def show_export(book):
+    """显示导出页面"""
     st.markdown("### 导出")
     
     chapters = get_book_chapters(book['id'])
@@ -956,6 +977,7 @@ def show_export(book):
                     st.error("导出失败")
 
 def show_chapter_detail():
+    """显示章节详情页面"""
     chapter_id = st.session_state.selected_chapter_id
     if not chapter_id:
         st.error("未选择章节")
@@ -1018,208 +1040,25 @@ def show_chapter_detail():
                         file_name=os.path.basename(filepath),
                         mime="text/plain"
                     )
-    
-    with col2:
-        if st.button("重新审核"):
-            with st.spinner("正在审核..."):
-                try:
-                    book_dict = {
-                        'id': book['id'],
-                        'title': book['title'],
-                        'genre': book['genre'],
-                        'platform': book['platform'],
-                        'chapter_words': book['chapter_words'],
-                        'target_chapters': book['target_chapters'],
-                        'language': book.get('language', 'zh')
-                    }
-                    
-                    # 使用流水线运行器进行审核
-                    pipeline = PipelineRunner(llm_client)
-                    audit_result = pipeline.audit_chapter(
-                        content=chapter['content'],
-                        book=book_dict,
-                        chapter_num=chapter['chapter_num']
-                    )
-                    
-                    update_chapter(
-                        chapter_id,
-                        audit_score=audit_result.get('score'),
-                        audit_issues=json.dumps(audit_result.get('issues', []))
-                    )
-                    
-                    st.success(f"审核完成！分数: {audit_result.get('score'):.2f}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"审核失败: {str(e)}")
-    
-    with col3:
-        if st.button("重写章节"):
-            st.session_state.show_rewrite_form = True
-    
-    if st.session_state.get('show_rewrite_form', False):
-        context = st.text_area("重写指导", placeholder="请输入重写指导", height=100)
-        col_confirm, col_cancel = st.columns(2)
-        with col_confirm:
-            if st.button("确认重写", type="primary"):
-                with st.spinner("正在重写..."):
-                    try:
-                        book_dict = {
-                            'id': book['id'],
-                            'title': book['title'],
-                            'genre': book['genre'],
-                            'platform': book['platform'],
-                            'chapter_words': book['chapter_words'],
-                            'target_chapters': book['target_chapters'],
-                            'language': book.get('language', 'zh'),
-                            'outline': book.get('outline', ''),
-                            'writing_style': book.get('writing_style', '')
-                        }
-                        
-                        # 使用新的流水线运行器进行重写
-                        pipeline = PipelineRunner(llm_client)
-                        result = pipeline.run(
-                            book=book_dict,
-                            chapter_num=chapter['chapter_num'],
-                            external_context=context,
-                            book_dir=file_manager.get_book_dir(book['id'])
-                        )
-                        
-                        update_chapter(
-                            chapter_id,
-                            title=result['title'],
-                            content=result['content'],
-                            word_count=result['word_count'],
-                            summary=result['chapter_summary'],
-                            revisions=chapter.get('revisions', 0) + 1
-                        )
-                        
-                        # 更新所有状态文件
-                        if result['updated_state']:
-                            file_manager.save_current_state(book['id'], result['updated_state'])
-                        if result['updated_ledger']:
-                            file_manager.save_particle_ledger(book['id'], result['updated_ledger'])
-                        if result['updated_hooks']:
-                            file_manager.save_pending_hooks(book['id'], result['updated_hooks'])
-                        if result['chapter_summary']:
-                            # 追加章节摘要到章节摘要文件
-                            existing_summaries = file_manager.load_chapter_summaries(book['id']) or ""
-                            new_summary = f"\n## 第{chapter['chapter_num']}章（重写）\n{result['chapter_summary']}\n"
-                            file_manager.save_chapter_summaries(book['id'], existing_summaries + new_summary)
-                        if result.get('updated_subplots'):
-                            file_manager.save_subplot_board(book['id'], result['updated_subplots'])
-                        if result.get('updated_emotional_arcs'):
-                            file_manager.save_emotional_arcs(book['id'], result['updated_emotional_arcs'])
-                        if result.get('updated_character_matrix'):
-                            file_manager.save_character_matrix(book['id'], result['updated_character_matrix'])
-                        
-                        log_manager.log_chapter_rewrite(book['id'], chapter['chapter_num'], result['title'])
-                        log_manager.log_state_update(book['id'], chapter['chapter_num'])
-                        
-                        st.session_state.show_rewrite_form = False
-                        st.success("重写完成！")
-                        st.rerun()
-                    except Exception as e:
-                        log_manager.log_error("重写章节", e, {"书籍ID": book['id'], "章节": chapter['chapter_num']})
-                        st.error(f"重写失败: {str(e)}")
-        with col_cancel:
-            if st.button("取消"):
-                st.session_state.show_rewrite_form = False
-                st.rerun()
 
-def show_settings():
-    st.title("⚙️ 设置")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["LLM设置", "检测设置", "其他设置", "操作日志"])
-    
-    with tab1:
-        st.markdown("### LLM 设置")
-        
-        llm_model = st.text_input("LLM 模型", value=get_setting('llm_model', os.getenv('INKOS_LLM_MODEL', 'gpt-4')))
-        llm_base_url = st.text_input("LLM Base URL", value=get_setting('llm_base_url', os.getenv('INKOS_LLM_BASE_URL', '')))
-        llm_api_key = st.text_input("LLM API Key", value=get_setting('llm_api_key', os.getenv('INKOS_LLM_API_KEY', '')), type="password")
-        
-        if st.button("保存 LLM 设置", type="primary"):
-            set_setting('llm_model', llm_model)
-            set_setting('llm_base_url', llm_base_url)
-            set_setting('llm_api_key', llm_api_key)
-            st.success("LLM 设置已保存")
-    
-    with tab2:
-        st.markdown("### AI 内容检测设置")
-        
-        detection_provider = st.selectbox("检测提供商", ["gptzero", "originality", "custom"], index=0)
-        detection_api_key = st.text_input("检测 API Key", value=get_setting('detection_api_key', ''), type="password")
-        detection_api_url = st.text_input("检测 API URL", value=get_setting('detection_api_url', ''))
-        
-        if st.button("保存检测设置", type="primary"):
-            set_setting('detection_provider', detection_provider)
-            set_setting('detection_api_key', detection_api_key)
-            set_setting('detection_api_url', detection_api_url)
-            st.success("检测设置已保存")
-    
-    with tab3:
-        st.markdown("### 其他设置")
-        
-        default_chapter_words = st.number_input("默认每章字数", min_value=1000, max_value=50000, value=int(get_setting('default_chapter_words', '3000')))
-        default_target_chapters = st.number_input("默认目标章节", min_value=1, max_value=1000, value=int(get_setting('default_target_chapters', '300')))
-        
-        if st.button("保存其他设置", type="primary"):
-            set_setting('default_chapter_words', str(default_chapter_words))
-            set_setting('default_target_chapters', str(default_target_chapters))
-            st.success("其他设置已保存")
-    
-    with tab4:
-        st.markdown("### 📋 操作日志")
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            log_limit = st.slider("显示最近操作数", min_value=5, max_value=100, value=20)
-        with col2:
-            if st.button("刷新日志"):
-                st.rerun()
-        
-        st.markdown("---")
-        
-        operations_log = log_manager.get_recent_operations(log_limit)
-        st.text_area("操作记录", operations_log, height=500)
+# 主页面逻辑
+st.sidebar.title("📚 novel-write")
+st.sidebar.markdown("AI 小说写作助手")
 
-st.sidebar.title("📚 InkOS")
-st.sidebar.markdown("---")
-
-if st.session_state.current_page == 'books':
-    if st.sidebar.button("📖 我的书籍", use_container_width=True, type="primary"):
-        st.session_state.current_page = 'books'
-        st.session_state.selected_book_id = None
-        st.session_state.selected_chapter_id = None
-else:
-    if st.sidebar.button("📖 我的书籍", use_container_width=True):
-        st.session_state.current_page = 'books'
-        st.session_state.selected_book_id = None
-        st.session_state.selected_chapter_id = None
-
-if st.session_state.current_page == 'create_book':
-    if st.sidebar.button("📝 创建新书", use_container_width=True, type="primary"):
-        st.session_state.current_page = 'create_book'
-else:
-    if st.sidebar.button("📝 创建新书", use_container_width=True):
-        st.session_state.current_page = 'create_book'
-
-if st.session_state.current_page == 'settings':
-    if st.sidebar.button("⚙️ 设置", use_container_width=True, type="primary"):
-        st.session_state.current_page = 'settings'
-else:
-    if st.sidebar.button("⚙️ 设置", use_container_width=True):
-        st.session_state.current_page = 'settings'
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 快捷操作")
-
-if st.sidebar.button("🔄 刷新页面", use_container_width=True):
+# 侧边栏导航
+if st.sidebar.button("📚 我的书籍"):
+    st.session_state.current_page = 'books'
+    st.session_state.selected_book_id = None
+    st.session_state.selected_chapter_id = None
     st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"当前版本: v1.0.0")
+if st.sidebar.button("📝 创建新书"):
+    st.session_state.current_page = 'create_book'
+    st.session_state.selected_book_id = None
+    st.session_state.selected_chapter_id = None
+    st.rerun()
 
+# 显示当前页面
 if st.session_state.current_page == 'books':
     show_books_list()
 elif st.session_state.current_page == 'create_book':
@@ -1228,5 +1067,3 @@ elif st.session_state.current_page == 'book_detail':
     show_book_detail()
 elif st.session_state.current_page == 'chapter_detail':
     show_chapter_detail()
-elif st.session_state.current_page == 'settings':
-    show_settings()
