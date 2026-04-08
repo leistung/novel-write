@@ -158,7 +158,7 @@ from src.utils.file_manager import FileManager
 from src.utils.log_manager import LogManager
 
 file_manager = FileManager('data')
-log_manager = LogManager('data')
+log_manager = LogManager('')
 
 def get_books():
     conn = sqlite3.connect('novel-write.db')

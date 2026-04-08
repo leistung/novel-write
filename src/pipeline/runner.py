@@ -35,7 +35,7 @@ class PipelineRunner:
         self.writer = WriterAgent(llm_client)
         self.checker = ContinuityAuditor(llm_client)
         self.author = AuditorAgent(llm_client)
-        self.log_manager = LogManager(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self.log_manager = LogManager('')
 
     def run(self, book: Dict[str, Any], chapter_num: int, external_context: Optional[str] = None, word_count_override: Optional[int] = None, book_dir: Optional[str] = None) -> Dict[str, Any]:
         """Run the full 4-agent workflow for chapter generation"""

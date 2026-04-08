@@ -9,7 +9,11 @@ class LogManager:
     
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
-        self.log_dir = os.path.join(base_dir, "log")
+        # 如果base_dir为空，使用当前工作目录
+        if not base_dir:
+            self.log_dir = os.path.join(os.getcwd(), "log")
+        else:
+            self.log_dir = os.path.join(base_dir, "log")
         os.makedirs(self.log_dir, exist_ok=True)
         
         # 配置日志
