@@ -1,236 +1,182 @@
-# novel-write AI 小说写作助手
+# novel-write - AI 小说写作助手
 
-一个基于 Streamlit 和 LangChain 的 AI 小说写作项目，提供了友好的 Web 界面。
+一个基于AI的智能小说写作系统，通过多Agent协作完成小说的创作、续写、重写和审核等任务。
 
-## 功能特性
+## 📋 项目概述
 
-- **创建新书**：支持多种题材和平台的小说创建，可配置标题、类型、平台、大纲、文笔参考、每章字数和总章节数
-- **续写章节**：基于前情自动生成新章节，确保字数达标和风格匹配
-- **审计章节**：从多维度检查章节内容，包括字数、质量、题材符合度、平台规则等
-- **修订章节**：根据审计结果自动修订章节内容
-- **查看状态**：查看书籍的创作状态和进度
-- **导出功能**：支持将章节导出为 txt 文件
+novel-write 是一个功能强大的AI小说写作助手，它利用多个专业Agent（架构师、写手、连续性检查器、审核编辑）协同工作，帮助用户创建和管理小说。系统支持多种工作流，包括创建新书、续写下一章、重写章节、从指定章节开始重写以及修改故事大纲等。
 
-## 快速开始
+## 🚀 核心功能
 
-### 安装依赖
+### 1. 多Agent协作
+- **架构师 (Architect)**：负责根据大纲的演进，制定本章节内容，发给写手
+- **写手 (Writer)**：负责根据当前状态，大纲和前面的章节，判断大纲是否合理，续写下一章
+- **情节一致性检查 (Checker)**：检查最新章节，如果是重写需要检查前后章节，和之前章节的连贯性
+- **审核的编辑 (Author)**：负责打分，从连贯性等维度进行评价
 
-```bash
-pip install -r requirements.txt
-```
+### 2. 工作流设计
+- **创建新书**：根据输入的标题、类型、参考资料、参考文笔，生成各个md文件
+- **续写1章**：可输入提示词增加人物，经过架构师规划、写手生成、检查器检查、审核评分等步骤
+- **重写1章**：参考各个md不动，只修改章节内容
+- **从第n章开始重写**：n章后的内容全删除
+- **修改故事大纲**：分析大纲变化对现有章节的影响，给出建议
 
-### 配置环境变量
+### 3. 小说参考MD文件
+- **content**：目录，每一章的内容
+- **story_bible**：小说设定，世界观，男女主角，修炼体系/都市体系，规则等
+- **chapter_summarize**：每一章的章节概要
+- **character_matrix**：角色矩阵，各个角色的交集和关系
+- **current_state**：当前状态，所处地点，涉及的人物，所处支线
+- **outline**：所有章节划分，几卷，每卷多少章，什么内容，大纲，所有支线等
+- **hooks**：设定的钩子和伏笔，预计哪里填坑，当前状态是否填坑
+- **emotional_states**：角色的情感状态，各个主角当前的情感状态，以及造成的原因
 
-复制 `.env.example` 文件为 `.env`，并填写你的 API 密钥：
-
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填写你的 API 密钥
-```
-
-### 启动应用
-
-```bash
-streamlit run app.py
-```
-
-## 项目结构
+## 🏗️ 项目结构
 
 ```
 novel-write/
 ├── app.py              # 主应用文件
 ├── requirements.txt    # 依赖文件
+├── .env                # 环境变量配置
 ├── .env.example        # 环境变量示例
 ├── README.md           # 项目说明
 ├── test/               # 测试脚本
-│   ├── test_full_workflow.py  # 完整工作流程测试
-│   ├── test_pipeline.py       # 核心pipeline测试
-│   ├── test_llm.py            # LLM客户端测试
-│   ├── test_database.py       # 数据库操作测试
-│   ├── test_export.py         # 导出功能测试
-│   ├── test_agents.py         # Agent功能测试
-│   └── run_all_tests.py       # 运行所有测试
-└── src/
-    ├── llm/            # LLM 相关模块
-    │   └── provider.py # LLM 客户端配置
-    ├── models/         # 数据模型
-    │   ├── book.py     # 书籍模型
-    │   ├── chapter.py  # 章节模型
-    │   ├── state.py    # 状态模型
-    │   └── project.py  # 项目配置模型
-    ├── agents/         # AI 代理
-    │   ├── base.py     # 基础代理类
-    │   ├── architect.py # 架构师代理
-    │   ├── writer.py   # 作家代理
-    │   ├── auditor.py  # 审计员代理
-    │   ├── detector.py # AI内容检测器
-    │   ├── continuity.py # 连续性审计员
-    │   ├── reviser.py  # 修订者代理
-    │   └── radar.py    # 雷达代理
+│   ├── agents/         # Agent测试
+│   │   ├── test_architect.py     # 测试架构师Agent
+│   │   ├── test_writer.py        # 测试写手Agent
+│   │   ├── test_continuity.py    # 测试连续性检查器Agent
+│   │   └── test_auditor.py       # 测试审核Agent
+│   ├── pipeline/       # 工作流测试
+│   │   └── test_pipeline.py      # 测试Pipeline工作流
+│   └── run_all_tests.py          # 运行所有测试的脚本
+├── data/               # 数据目录
+│   ├── book_X/         # 书籍数据
+│   └── log/            # 日志文件
+└── src/                # 源代码
+    ├── agents/         # Agent实现
+    │   ├── prompts/    # 提示词管理
+    │   ├── architect.py        # 架构师Agent
+    │   ├── writer.py           # 写手Agent
+    │   ├── continuity.py       # 连续性检查器Agent
+    │   └── auditor.py          # 审核Agent
+    ├── llm/            # LLM客户端
+    │   └── provider.py         # LLM提供商
+    ├── pipeline/       # 工作流管理
+    │   └── runner.py           # 工作流运行器
     └── utils/          # 工具类
-        └── file_manager.py # 文件管理器
+        ├── file_manager.py     # 文件管理
+        └── log_manager.py      # 日志管理
 ```
 
-## 技术栈
+## 📦 安装步骤
 
-- **前端**：Streamlit
-- **后端**：Python
-- **LLM 框架**：LangChain
-- **LLM 提供商**：OpenAI（支持自定义提供商）
-- **数据库**：SQLite
+### 1. 克隆项目
 
-## Agent 介绍
+```bash
+git clone <项目地址>
+cd novel-write
+```
 
-### 1. 架构师 Agent (ArchitectAgent)
+### 2. 安装依赖
 
-**功能**：生成小说的基础设定，包括故事圣经、卷纲、书籍规则等。
+```bash
+pip install -r requirements.txt
+```
 
-**主要方法**：
-- `generate_foundation(book: Dict[str, Any], external_context: Optional[str] = None) -> ArchitectOutput`：生成完整的基础设定
-  - **参数**：
-    - `book`：书籍信息，包括标题、题材、平台等
-    - `external_context`：外部创作指令（可选）
-  - **返回值**：`ArchitectOutput` 对象，包含故事圣经、卷纲、书籍规则、当前状态和伏笔池
+### 3. 配置环境变量
 
-**输出结构**：
-- `story_bible`：故事圣经，包含世界观、主角、势力与人物、地理与环境等详细设定
-- `volume_outline`：卷纲，包含各卷的主要内容和章节规划
-- `book_rules`：书籍规则，包含写作风格、题材特征等要求
-- `current_state`：当前状态，描述故事的当前进展
-- `pending_hooks`：伏笔池，包含未回收的伏笔
+复制 `.env.example` 文件为 `.env`，并填写相应的配置：
 
-### 2. 作家 Agent (WriterAgent)
+```bash
+cp .env.example .env
+```
 
-**功能**：生成小说章节内容，确保字数达标和风格匹配。
+编辑 `.env` 文件，配置以下内容：
 
-**主要方法**：
-- `write_chapter(input: WriteChapterInput) -> WriteChapterOutput`：生成章节内容
-  - **参数**：
-    - `input`：`WriteChapterInput` 对象，包含书籍信息、章节号、外部上下文等
-  - **返回值**：`WriteChapterOutput` 对象，包含章节标题、内容、字数等信息
+- `inkos_llm_api_key`：LLM API密钥
+- `inkos_llm_base_url`：LLM API基础URL
+- `inkos_llm_model`：LLM模型名称
 
-**输入结构**：
-- `book`：书籍信息
-- `chapter_number`：章节号
-- `external_context`：外部创作指令（可选）
-- `word_count_override`：字数覆盖（可选）
-- `temperature_override`：温度覆盖（可选）
+## 🎯 使用方法
 
-**输出结构**：
-- `chapter_number`：章节号
-- `title`：章节标题
-- `content`：章节内容
-- `word_count`：章节字数
-- `pre_write_check`：写作前检查
-- `post_settlement`：写作后结算
-- `updated_state`：更新后的状态
-- `updated_ledger`：更新后的资源账本
-- `updated_hooks`：更新后的伏笔池
-- `chapter_summary`：章节摘要
-- `updated_subplots`：更新后的支线
-- `updated_emotional_arcs`：更新后的情感弧线
-- `updated_character_matrix`：更新后的角色矩阵
-- `post_write_errors`：写作后错误
-- `post_write_warnings`：写作后警告
-- `token_usage`：令牌使用情况
+### 1. 启动应用
 
-### 3. 审计员 Agent (AuditorAgent)
+```bash
+streamlit run app.py
+```
 
-**功能**：从多维度审核章节内容，生成改进建议。
+### 2. 创建新书
 
-**主要方法**：
-- `run(input: Dict[str, Any]) -> Dict[str, Any]`：运行审核
-  - **参数**：
-    - `input`：包含内容、书籍信息和章节号的字典
-  - **返回值**：包含审核结果的字典
+- 输入书名、题材、平台、每章字数、总章节数等信息
+- 可选：参考大纲、参考作者文笔
+- 点击「创建书籍」按钮
 
-**审核维度**：
-1. 字数检查：确保章节字数达到要求
-2. 内容质量：检查内容是否流畅，情节是否合理
-3. 题材符合度：检查内容是否符合题材特征
-4. 平台规则：检查内容是否符合平台规则
-5. 语法错误：检查是否有语法错误
-6. 逻辑连贯：检查情节是否逻辑连贯
-7. 人物刻画：检查人物刻画是否鲜明
-8. 场景描写：检查场景描写是否生动
-9. 写作风格：检查是否符合指定的写作风格
-10. 创新程度：检查内容是否有创新点
+### 3. 续写小说
 
-### 4. 检测器 Agent (DetectorAgent)
+- 选择已创建的书籍
+- 输入可选的提示词（如增加人物等）
+- 点击「续写下一章」按钮
 
-**功能**：检测章节内容是否为 AI 生成。
+### 4. 重写章节
 
-**主要方法**：
-- `run(context: Dict[str, Any]) -> Dict[str, Any]`：运行检测器
-  - **参数**：
-    - `context`：包含内容和检测配置的字典
-  - **返回值**：包含检测结果的字典
+- 选择已创建的书籍
+- 选择要重写的章节
+- 输入可选的提示词
+- 点击「重写章节」按钮
 
-- `detect_ai_content(config: Dict[str, Any], content: str) -> DetectionResult`：检测 AI 生成的内容
-  - **参数**：
-    - `config`：检测配置，包含提供商、API URL 等
-    - `content`：要检测的内容
-  - **返回值**：`DetectionResult` 对象，包含检测分数、提供商等信息
+### 5. 从指定章节开始重写
 
-**支持的检测提供商**：
-- gptzero
-- originality
-- custom（自定义 API）
+- 选择已创建的书籍
+- 选择开始重写的章节
+- 输入可选的提示词
+- 点击「从该章节开始重写」按钮
 
-## 工作流程
+### 6. 修改故事大纲
 
-1. **创建书籍**：
-   - 用户填写书籍信息，包括标题、题材、平台、大纲、文笔参考、每章字数和总章节数
-   - 系统在数据库中创建书籍记录
-   - 系统调用架构师 Agent 生成基础设定
+- 选择已创建的书籍
+- 输入新的大纲内容
+- 点击「修改大纲」按钮
 
-2. **生成章节**：
-   - 用户选择要续写的书籍，输入创作指导
-   - 系统调用作家 Agent 生成章节内容
-   - 系统调用检测器 Agent 检测 AI 内容
-   - 系统调用审计员 Agent 审核章节内容
-   - 系统将章节保存到数据库
+## 🧪 运行测试
 
-3. **审计章节**：
-   - 用户选择要审计的书籍和章节
-   - 系统调用审计员 Agent 审核章节内容
-   - 系统显示审核结果和改进建议
-
-4. **修订章节**：
-   - 用户选择要修订的书籍和章节
-   - 系统根据审计结果调用修订者 Agent 修订章节内容
-   - 系统将修订后的章节保存到数据库
-
-5. **查看状态**：
-   - 用户选择要查看的书籍
-   - 系统显示书籍的创作状态和进度
-   - 系统显示章节列表和基本信息
-
-6. **导出章节**：
-   - 用户选择要导出的书籍和章节
-   - 系统将章节内容导出为 txt 文件
-
-## 测试
-
-项目包含多个测试脚本，用于验证各个组件的功能：
-
-- `test_full_workflow.py`：测试完整的工作流程
-- `test_pipeline.py`：测试核心 pipeline
-- `test_llm.py`：测试 LLM 客户端
-- `test_database.py`：测试数据库操作
-- `test_export.py`：测试导出功能
-- `test_agents.py`：测试各个 Agent 的功能
-- `run_all_tests.py`：运行所有测试
-
-运行测试：
+### 运行所有测试
 
 ```bash
 python test/run_all_tests.py
 ```
 
-## 注意事项
+### 运行单个测试文件
 
-- 请确保你的 API 密钥有效，并且有足够的配额。
-- 生成章节可能需要较长时间，请耐心等待。
-- 审计和修订功能可能会调用多次 LLM，请注意 API 调用成本。
-- 检测 AI 内容需要配置相应的 API 密钥。
+```bash
+# 测试架构师Agent
+python test/agents/test_architect.py
+
+# 测试工作流
+python test/pipeline/test_pipeline.py
+```
+
+## 📝 日志管理
+
+系统会在 `log` 目录下生成以下日志文件：
+
+- `operations.log`：操作日志，记录所有操作的执行情况
+- `novel-write_YYYY-MM-DD.log`：完整日志，记录系统运行的详细信息
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request 来改进这个项目！
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。
+
+## 📞 联系
+
+如有问题或建议，请通过以下方式联系：
+
+- 邮箱：<your-email@example.com>
+- GitHub：<your-github-profile>
+
+---
+
+**Happy Writing! 📚✨**
