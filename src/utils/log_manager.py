@@ -157,3 +157,38 @@ class LogManager:
     def error(self, message: str):
         """错误日志"""
         self.logger.error(message)
+    
+    def log_workflow_step(self, workflow: str, step: str, agent: str, result: Optional[Dict[str, Any]] = None, status: str = "success"):
+        """记录工作流步骤
+        
+        Args:
+            workflow: 工作流名称
+            step: 步骤名称
+            agent: 执行agent名称
+            result: 执行结果
+            status: 执行状态 (success, failed, in_progress)
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] [{status.upper()}] 工作流: {workflow} - 步骤: {step} - Agent: {agent}"
+        
+        if result:
+            # 限制结果的大小，避免日志过大
+            import json
+            try:
+                # 转换为JSON字符串，限制长度
+                result_str = json.dumps(result, ensure_ascii=False, indent=2)
+                if len(result_str) > 10000:
+                    result_str = result_str[:10000] + "... (truncated)"
+                log_entry += f"\n  结果: {result_str}"
+            except Exception as e:
+                log_entry += f"\n  结果: (无法序列化) {str(e)}"
+        
+        log_entry += "\n"
+        
+        with open(self.operation_log_file, 'a', encoding='utf-8') as f:
+            f.write(log_entry)
+        
+        # 记录到debug日志，详细信息
+        self.logger.debug(f"工作流: {workflow} - 步骤: {step} - Agent: {agent} - 状态: {status}")
+        if result:
+            self.logger.debug(f"结果: {result}")

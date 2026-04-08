@@ -4,6 +4,7 @@ from src.agents.writer import WriterAgent, WriteChapterInput
 from src.agents.continuity import ContinuityAuditor
 from src.agents.auditor import AuditorAgent
 from src.llm.provider import LLMClient
+from src.utils.log_manager import LogManager
 import os
 import shutil
 from datetime import datetime
@@ -34,6 +35,7 @@ class PipelineRunner:
         self.writer = WriterAgent(llm_client)
         self.checker = ContinuityAuditor(llm_client)
         self.author = AuditorAgent(llm_client)
+        self.log_manager = LogManager(os.path.join(os.path.dirname(__file__), "..", ".."))
 
     def run(self, book: Dict[str, Any], chapter_num: int, external_context: Optional[str] = None, word_count_override: Optional[int] = None, book_dir: Optional[str] = None) -> Dict[str, Any]:
         """Run the full 4-agent workflow for chapter generation"""
@@ -55,6 +57,19 @@ class PipelineRunner:
                     external_context=external_context
                 )
                 
+                # 记录架构师的返回值
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="规划章节内容",
+                    agent="Architect",
+                    result={
+                        'chapter_outline': chapter_plan.chapter_outline,
+                        'character_states': chapter_plan.character_states,
+                        'setting': chapter_plan.setting,
+                        'plot_points': chapter_plan.plot_points
+                    }
+                )
+                
                 # 2. Writer: Generate chapter content
                 print(f"[Writer] Writing chapter {chapter_num}...")
                 write_input = WriteChapterInput(
@@ -72,6 +87,21 @@ class PipelineRunner:
                 )
                 writer_output = self.writer.write_chapter(write_input)
                 
+                # 记录写手的返回值
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="生成章节内容",
+                    agent="Writer",
+                    result={
+                        'title': writer_output.title,
+                        'content': writer_output.content[:1000] + "..." if len(writer_output.content) > 1000 else writer_output.content,
+                        'word_count': writer_output.word_count,
+                        'updated_state': writer_output.updated_state,
+                        'updated_hooks': writer_output.updated_hooks,
+                        'chapter_summary': writer_output.chapter_summary
+                    }
+                )
+                
                 # 3. Checker: Check continuity
                 print(f"[Checker] Checking continuity for chapter {chapter_num}...")
                 checker_result = self.checker.check_continuity(
@@ -80,6 +110,14 @@ class PipelineRunner:
                     chapter_content=writer_output.content,
                     previous_summary=previous_summary,
                     current_state=writer_output.updated_state
+                )
+                
+                # 记录检查器的返回值
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="检查情节连续性",
+                    agent="Checker",
+                    result=checker_result
                 )
                 
                 if not checker_result['passed']:
@@ -95,6 +133,14 @@ class PipelineRunner:
                     chapter_num=chapter_num
                 )
                 
+                # 记录审核的返回值
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="审核章节内容",
+                    agent="Author",
+                    result=author_result
+                )
+                
                 if author_result['score'] < self.config.min_audit_score:
                     print(f"[Author] Audit score too low: {author_result['score']}")
                     retries += 1
@@ -102,7 +148,7 @@ class PipelineRunner:
                 
                 # All checks passed
                 print(f"[Pipeline] Chapter {chapter_num} completed successfully")
-                return {
+                result = {
                     'chapter_num': chapter_num,
                     'title': writer_output.title,
                     'content': writer_output.content,
@@ -119,13 +165,39 @@ class PipelineRunner:
                     'updated_character_matrix': writer_output.updated_character_matrix
                 }
                 
+                # 记录整个工作流的最终结果
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="工作流完成",
+                    agent="Pipeline",
+                    result=result
+                )
+                
+                return result
+                
             except Exception as e:
                 print(f"[Pipeline] Error: {str(e)}")
+                # 记录错误信息
+                self.log_manager.log_workflow_step(
+                    workflow="章节生成",
+                    step="工作流执行",
+                    agent="Pipeline",
+                    result={'error': str(e)},
+                    status="failed"
+                )
                 retries += 1
                 continue
         
         # Max retries reached
-        raise Exception(f"Failed to generate chapter after {self.config.max_retries} retries")
+        error_msg = f"Failed to generate chapter after {self.config.max_retries} retries"
+        self.log_manager.log_workflow_step(
+            workflow="章节生成",
+            step="工作流执行",
+            agent="Pipeline",
+            result={'error': error_msg},
+            status="failed"
+        )
+        raise Exception(error_msg)
 
     def _get_previous_summary(self, book_dir: Optional[str], chapter_num: int) -> str:
         """Get summary of previous chapter"""
@@ -166,13 +238,23 @@ class PipelineRunner:
         print(f"[Architect] Creating book foundation for {book.get('title', 'Unknown')}...")
         foundation = self.architect.generate_foundation(book, external_context)
         
-        return {
+        result = {
             'story_bible': foundation.story_bible,
             'volume_outline': foundation.volume_outline,
             'book_rules': foundation.book_rules,
             'current_state': foundation.current_state,
             'pending_hooks': foundation.pending_hooks
         }
+        
+        # 记录创建书籍基础设定的结果
+        self.log_manager.log_workflow_step(
+            workflow="创建书籍",
+            step="生成基础设定",
+            agent="Architect",
+            result=result
+        )
+        
+        return result
 
     def rewrite_chapter(self, book: Dict[str, Any], chapter_num: int, external_context: Optional[str] = None, word_count_override: Optional[int] = None, book_dir: Optional[str] = None) -> Dict[str, Any]:
         """重写章节"""
@@ -213,12 +295,22 @@ class PipelineRunner:
             outline_context=outline_context
         )
         
-        return {
+        result = {
             'backup_dir': backup_dir,
             'outline_change_ratio': outline_change_ratio,
             'impact_analysis': impact_analysis,
             'recommendation': self._generate_recommendation(outline_change_ratio, impact_analysis)
         }
+        
+        # 记录修改故事大纲的结果
+        self.log_manager.log_workflow_step(
+            workflow="修改大纲",
+            step="分析大纲变化",
+            agent="Architect",
+            result=result
+        )
+        
+        return result
 
     def _backup_book_data(self, book_dir: Optional[str], book_id: int) -> str:
         """备份书籍数据"""
@@ -260,5 +352,21 @@ class PipelineRunner:
         result.update({
             'state_update': update_result
         })
+        
+        # 记录更新状态文件的结果
+        self.log_manager.log_workflow_step(
+            workflow="续写下一章",
+            step="更新状态文件",
+            agent="Architect",
+            result={'update_result': update_result}
+        )
+        
+        # 记录整个续写下一章工作流的最终结果
+        self.log_manager.log_workflow_step(
+            workflow="续写下一章",
+            step="工作流完成",
+            agent="Pipeline",
+            result=result
+        )
         
         return result
