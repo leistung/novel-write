@@ -58,7 +58,7 @@ class WriterAgent(BaseAgent):
         story_bible = self._read_file(book_dir, "story_bible.md") if book_dir else "(故事圣经尚未创建)"
         volume_outline = self._read_file(book_dir, "volume_outline.md") if book_dir else "(卷纲尚未创建)"
         current_state = self._read_file(book_dir, "current_state.md") if book_dir else "(当前状态尚未创建)"
-        ledger = self._read_file(book_dir, "particle_ledger.md") if book_dir else "(资源账本尚未创建)"
+
         hooks = self._read_file(book_dir, "pending_hooks.md") if book_dir else "(伏笔池尚未创建)"
         chapter_summaries = self._read_file(book_dir, "chapter_summaries.md") if book_dir else "(章节摘要尚未创建)"
         subplot_board = self._read_file(book_dir, "subplot_board.md") if book_dir else "(支线进度板尚未创建)"
@@ -83,7 +83,6 @@ class WriterAgent(BaseAgent):
             'story_bible': story_bible,
             'volume_outline': volume_outline,
             'current_state': current_state,
-            'ledger': ledger if genre_profile.get('numericalSystem') else '',
             'hooks': hooks,
             'word_count': word_count_override or book.get('chapter_words', 3000),
             'external_context': external_context,
@@ -116,7 +115,6 @@ class WriterAgent(BaseAgent):
             'title': creative['title'],
             'content': creative['content'],
             'current_state': current_state,
-            'ledger': ledger if genre_profile.get('numericalSystem') else '',
             'hooks': hooks,
             'chapter_summaries': chapter_summaries,
             'subplot_board': subplot_board,
