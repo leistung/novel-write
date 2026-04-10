@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, List, Tuple
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
-from src.agents.prompts.prompts import ARCHITECT_PROMPTS
+from src.prompts import ARCHITECT_PROMPTS
 import os
 
 class ArchitectOutput:
@@ -20,8 +19,8 @@ class ChapterPlanOutput:
         self.plot_points = plot_points
 
 class ArchitectAgent(BaseAgent):
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
 
     def generate_foundation(self, book: Dict[str, Any], external_context: Optional[str] = None) -> ArchitectOutput:
         """生成完整的基础设定"""
@@ -69,15 +68,14 @@ class ArchitectAgent(BaseAgent):
         # 构建用户提示
         user_prompt = f"请为小说《{title}》生成完整的基础设定，包括故事圣经、卷纲、书籍规则、初始状态卡和伏笔池，确保内容详细、丰富、有吸引力。"
 
-        # 调用 LLM 生成内容
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+
+        # 运行链
+        response = self.run_chain(prompt)
 
         # 解析输出
-        return self._parse_sections(response)
+        return self._parse_sections(response['content'])
 
     def _parse_sections(self, content: str) -> ArchitectOutput:
         """解析生成的各个部分"""
@@ -156,15 +154,16 @@ class ArchitectAgent(BaseAgent):
         # 构建用户提示
         user_prompt = f"请为第{chapter_num}章制定详细的内容规划，包括章节大纲、人物状态、场景设定和情节点。"
 
-        # 调用 LLM 生成内容
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
 
         # 解析输出
-        return self._parse_chapter_plan(response)
+        return self._parse_chapter_plan(content)
 
     def _parse_chapter_plan(self, content: str) -> ChapterPlanOutput:
         """解析章节规划输出"""
@@ -245,20 +244,21 @@ class ArchitectAgent(BaseAgent):
         # 构建用户提示
         user_prompt = "请根据本章内容更新书籍的状态文件。"
         
-        # 调用 LLM 生成内容
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
         
         # 解析输出
         return {
-            'updated_state': response,
-            'updated_hooks': response,
-            'updated_ledger': response,
-            'updated_subplots': response,
-            'updated_emotional_arcs': response,
-            'updated_character_matrix': response
+            'updated_state': content,
+            'updated_hooks': content,
+            'updated_ledger': content,
+            'updated_subplots': content,
+            'updated_emotional_arcs': content,
+            'updated_character_matrix': content
         }
 

@@ -1,51 +1,48 @@
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
-from src.agents.prompts.prompts import AUTHOR_PROMPTS
+from src.prompts import AUTHOR_PROMPTS
 
 class AuditorAgent(BaseAgent):
     """审核Agent"""
     
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
     
-    def score_chapter(self, content: str, book: Dict[str, Any], chapter_num: int) -> Dict[str, Any]:
+    def score_chapter(self, content: str, book: Dict[str, Any]) -> Dict[str, Any]:
         """给章节打分"""
+        title = book.get('title', '未知')
         genre = book.get('genre', '未知')
-        platform = book.get('platform', '其他')
-        chapter_word_count = book.get('chapter_words', 3000)
-        writing_style = book.get('writing_style', '')
         
         # 构建系统提示
         system_prompt = AUTHOR_PROMPTS["score_chapter"].format(
+            title=title,
             genre=genre,
-            chapter_num=chapter_num,
-            platform=platform,
-            chapter_word_count=chapter_word_count,
-            writing_style=writing_style if writing_style else '无特殊要求'
+            chapter_content=content
         )
         
         # 构建用户提示
-        user_prompt = f"请审核以下章节内容：\n\n{content}"
+        user_prompt = "请审核以下章节内容。"
         
-        # 调用 LLM
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content_response = response['content']
+        token_usage = response['token_usage']
         
         # 解析审核结果
-        return self._parse_audit_result(response, content, chapter_word_count, genre, platform)
+        chapter_word_count = book.get('chapter_words', 3000)
+        platform = book.get('platform', '其他')
+        return self._parse_audit_result(content_response, content, chapter_word_count, genre, platform)
     
     def run(self, input: Dict[str, Any]) -> Dict[str, Any]:
         """运行审核"""
         content = input.get('content', '')
         book = input.get('book', {})
-        chapter_num = input.get('chapter_num', 1)
         
         # 审核内容
-        return self.score_chapter(content, book, chapter_num)
+        return self.score_chapter(content, book)
     
     def _parse_audit_result(self, response: str, content: str, chapter_word_count: int, genre: str, platform: str) -> Dict[str, Any]:
         """解析审核结果"""

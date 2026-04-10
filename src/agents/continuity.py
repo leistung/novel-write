@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
-from src.agents.prompts.prompts import CHECKER_PROMPTS
+from src.prompts import CONSISTENCY_PROMPTS
 
 class AuditIssue:
     def __init__(self, id: str, type: str, severity: str, message: str, location: str):
@@ -18,32 +17,35 @@ class AuditResult:
         self.passed = passed
 
 class ContinuityAuditor(BaseAgent):
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
 
-    def check_continuity(self, book_title: str, chapter_num: int, chapter_content: str, previous_summary: str, current_state: str) -> Dict[str, Any]:
+    def check_consistency(self, chapter_content: str, previous_chapter_content: str, book: Dict[str, Any]) -> Dict[str, Any]:
         """检查章节连续性"""
+        title = book.get('title', '未知')
+        genre = book.get('genre', '未知')
+        
         # 构建系统提示
-        system_prompt = "你是一位专业的小说连续性审计员，擅长检查小说章节的连续性、逻辑性和一致性。你的任务是全面检查章节内容，确保其与前章内容和当前状态保持一致。"
+        system_prompt = CONSISTENCY_PROMPTS["check_consistency"].format(
+            title=title,
+            genre=genre,
+            chapter_content=chapter_content,
+            previous_chapter_content=previous_chapter_content
+        )
         
         # 构建用户提示
-        user_prompt = CHECKER_PROMPTS["check_continuity"].format(
-            book_title=book_title,
-            chapter_num=chapter_num,
-            chapter_content=chapter_content,
-            previous_summary=previous_summary,
-            current_state=current_state
-        )
-
-        # 调用 LLM
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = self.llm_client.chat_completion(messages)
+        user_prompt = "请检查章节的连续性和一致性。"
+        
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
 
         # 解析输出
-        return self._parse_audit_response(response)
+        return self._parse_audit_response(content)
 
     def run(self, context: AgentContext) -> Dict[str, Any]:
         """运行连续性审计"""

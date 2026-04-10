@@ -7,13 +7,13 @@ from typing import Optional, Dict, Any
 class LogManager:
     """日志管理器"""
     
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: str = "logs"):
         self.base_dir = base_dir
         # 如果base_dir为空，使用当前工作目录
         if not base_dir:
-            self.log_dir = os.path.join(os.getcwd(), "log")
+            self.log_dir = os.path.join(os.getcwd(), "logs")
         else:
-            self.log_dir = os.path.join(base_dir, "log")
+            self.log_dir = base_dir
         os.makedirs(self.log_dir, exist_ok=True)
         
         # 配置日志
@@ -31,14 +31,6 @@ class LogManager:
         if self.logger.handlers:
             return
         
-        # 文件handler - 完整日志
-        today = datetime.now().strftime("%Y-%m-%d")
-        file_handler = logging.FileHandler(
-            os.path.join(self.log_dir, f"novel-write_{today}.log"),
-            encoding='utf-8'
-        )
-        file_handler.setLevel(logging.DEBUG)
-        
         # 控制台handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
@@ -48,23 +40,32 @@ class LogManager:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
         
-        self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
     
-    def log_operation(self, operation: str, details: Optional[Dict[str, Any]] = None, 
-                      status: str = "success"):
-        """记录操作日志
+    def _get_log_file(self, log_type: str) -> str:
+        """获取日志文件路径
         
         Args:
-            operation: 操作名称
-            details: 操作详情
-            status: 操作状态 (success, failed, in_progress)
+            log_type: 日志类型 (agent, workflow)
+            
+        Returns:
+            日志文件路径
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        return os.path.join(self.log_dir, f"{log_type}_{today}.log")
+    
+    def log_agent(self, agent: str, message: str, details: Optional[Dict[str, Any]] = None):
+        """记录Agent日志
+        
+        Args:
+            agent: Agent名称
+            message: 日志消息
+            details: 详细信息
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] [{status.upper()}] {operation}"
+        log_entry = f"[{timestamp}] [{agent.upper()}] {message}"
         
         if details:
             for key, value in details.items():
@@ -72,127 +73,41 @@ class LogManager:
         
         log_entry += "\n"
         
-        with open(self.operation_log_file, 'a', encoding='utf-8') as f:
+        log_file = self._get_log_file("agent")
+        with open(log_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
         
-        self.logger.info(f"操作记录: {operation} - {status}")
-    
-    def log_book_creation(self, book_id: int, title: str):
-        """记录书籍创建"""
-        self.log_operation(
-            "创建书籍",
-            {"书籍ID": book_id, "标题": title}
-        )
-    
-    def log_chapter_generation(self, book_id: int, chapter_num: int, title: str, word_count: int):
-        """记录章节生成"""
-        self.log_operation(
-            "生成章节",
-            {"书籍ID": book_id, "章节": chapter_num, "标题": title, "字数": word_count}
-        )
-    
-    def log_chapter_rewrite(self, book_id: int, chapter_num: int, title: str):
-        """记录章节重写"""
-        self.log_operation(
-            "重写章节",
-            {"书籍ID": book_id, "章节": chapter_num, "标题": title}
-        )
-    
-    def log_settings_generation(self, book_id: int, title: str):
-        """记录基础设定生成"""
-        self.log_operation(
-            "生成基础设定",
-            {"书籍ID": book_id, "标题": title}
-        )
-    
-    def log_state_update(self, book_id: int, chapter_num: int):
-        """记录状态更新"""
-        self.log_operation(
-            "更新状态文件",
-            {"书籍ID": book_id, "章节": chapter_num}
-        )
-    
-    def log_error(self, operation: str, error: Exception, details: Optional[Dict[str, Any]] = None):
-        """记录错误"""
-        error_details = {"错误": str(error)}
+        # 控制台输出也包含详细信息
         if details:
-            error_details.update(details)
-        
-        self.log_operation(
-            operation,
-            error_details,
-            status="failed"
-        )
-        self.logger.error(f"{operation} 失败: {str(error)}")
+            details_str = "".join([f"\n  {key}: {value}" for key, value in details.items()])
+            self.logger.info(f"[{agent}] {message}{details_str}")
+        else:
+            self.logger.info(f"[{agent}] {message}")
     
-    def get_recent_operations(self, limit: int = 20) -> str:
-        """获取最近的操作日志
-        
-        Args:
-            limit: 返回的日志条数
-            
-        Returns:
-            操作日志内容
-        """
-        if not os.path.exists(self.operation_log_file):
-            return "暂无操作记录"
-        
-        with open(self.operation_log_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # 返回最近的limit条记录
-        if len(lines) > limit * 2:
-            lines = lines[-(limit * 2):]
-        
-        return "".join(lines)
-    
-    def debug(self, message: str):
-        """调试日志"""
-        self.logger.debug(message)
-    
-    def info(self, message: str):
-        """信息日志"""
-        self.logger.info(message)
-    
-    def warning(self, message: str):
-        """警告日志"""
-        self.logger.warning(message)
-    
-    def error(self, message: str):
-        """错误日志"""
-        self.logger.error(message)
-    
-    def log_workflow_step(self, workflow: str, step: str, agent: str, result: Optional[Dict[str, Any]] = None, status: str = "success"):
-        """记录工作流步骤
+    def log_workflow(self, workflow: str, message: str, details: Optional[Dict[str, Any]] = None):
+        """记录工作流日志
         
         Args:
             workflow: 工作流名称
-            step: 步骤名称
-            agent: 执行agent名称
-            result: 执行结果
-            status: 执行状态 (success, failed, in_progress)
+            message: 日志消息
+            details: 详细信息
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] [{status.upper()}] 工作流: {workflow} - 步骤: {step} - Agent: {agent}"
+        log_entry = f"[{timestamp}] [{workflow.upper()}] {message}"
         
-        if result:
-            # 限制结果的大小，避免日志过大
-            import json
-            try:
-                # 转换为JSON字符串，限制长度
-                result_str = json.dumps(result, ensure_ascii=False, indent=2)
-                if len(result_str) > 10000:
-                    result_str = result_str[:10000] + "... (truncated)"
-                log_entry += f"\n  结果: {result_str}"
-            except Exception as e:
-                log_entry += f"\n  结果: (无法序列化) {str(e)}"
+        if details:
+            for key, value in details.items():
+                log_entry += f"\n  {key}: {value}"
         
         log_entry += "\n"
         
-        with open(self.operation_log_file, 'a', encoding='utf-8') as f:
+        log_file = self._get_log_file("workflow")
+        with open(log_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
         
-        # 记录到debug日志，详细信息
-        self.logger.debug(f"工作流: {workflow} - 步骤: {step} - Agent: {agent} - 状态: {status}")
-        if result:
-            self.logger.debug(f"结果: {result}")
+        # 控制台输出也包含详细信息
+        if details:
+            details_str = "".join([f"\n  {key}: {value}" for key, value in details.items()])
+            self.logger.info(f"[{workflow}] {message}{details_str}")
+        else:
+            self.logger.info(f"[{workflow}] {message}")

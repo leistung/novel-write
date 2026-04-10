@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
-from src.agents.prompts.prompts import WRITER_PROMPTS
+from src.prompts import WRITER_PROMPTS
 import os
 import re
 
@@ -41,8 +40,38 @@ class WriteChapterOutput:
         self.token_usage = token_usage
 
 class WriterAgent(BaseAgent):
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
+
+    def check_chapter_outline(self, chapter_outline: str, book_data: Dict[str, Any]) -> Dict[str, Any]:
+        """检查章节大纲是否合理"""
+        genre = book_data.get('genre', '未知')
+        title = book_data.get('title', '未知')
+        
+        # 创建提示词
+        system_prompt = WRITER_PROMPTS["check_chapter_outline"].format(
+            genre=genre,
+            title=title,
+            chapter_outline=chapter_outline
+        )
+        
+        # 创建提示
+        prompt = self.create_prompt(system_prompt, "请评估上述章节大纲的合理性，并提供修改建议。")
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
+        
+        # 解析结果
+        # 这里简化处理，实际应该根据LLM的输出格式进行解析
+        is_valid = "合理" in content or "可行" in content
+        suggestions = content
+        
+        return {
+            'is_valid': is_valid,
+            'suggestions': suggestions
+        }
 
     def write_chapter(self, input: WriteChapterInput) -> WriteChapterOutput:
         """生成章节内容"""
@@ -98,14 +127,16 @@ class WriterAgent(BaseAgent):
         creative_temperature = temperature_override or 0.7
         target_words = word_count_override or book.get('chapter_words', 3000)
 
-        messages = [
-            {"role": "system", "content": creative_system_prompt},
-            {"role": "user", "content": creative_user_prompt}
-        ]
-        creative_response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(creative_system_prompt, creative_user_prompt)
+
+        # 运行链
+        creative_response = self.run_chain(prompt)
+        content = creative_response['content']
+        token_usage = creative_response['token_usage']
 
         # 解析创意输出
-        creative = self._parse_creative_output(chapter_number, creative_response)
+        creative = self._parse_creative_output(chapter_number, content)
 
         # 第二阶段：状态结算
         settle_result = self._settle({
@@ -150,7 +181,7 @@ class WriterAgent(BaseAgent):
             updated_character_matrix=settlement['updated_character_matrix'],
             post_write_errors=post_write_errors,
             post_write_warnings=post_write_warnings,
-            token_usage=None  # 实际项目中应该从 LLM 响应中提取
+            token_usage=token_usage  # 从 LLM 响应中提取
         )
 
     def _get_genre_profile(self, genre: str) -> Dict[str, Any]:
@@ -381,12 +412,12 @@ Requirements:
         observer_system = self._build_observer_system_prompt(book, genre_profile, resolved_language)
         observer_user = self._build_observer_user_prompt(chapter_number, title, content, resolved_language)
         
-        observer_messages = [
-            {"role": "system", "content": observer_system},
-            {"role": "user", "content": observer_user}
-        ]
-        observer_response = self.llm_client.chat_completion(observer_messages)
-        observations = observer_response
+        # 创建提示词
+        observer_prompt = self.create_prompt(observer_system, observer_user)
+        
+        # 运行链
+        observer_response = self.run_chain(observer_prompt)
+        observations = observer_response['content']
         
         # 第二阶段：Reflector - 将观察结果合并到状态文件中
         settler_system = self._build_settler_system_prompt(book, genre_profile, resolved_language)
@@ -396,15 +427,15 @@ Requirements:
             volume_outline, observations
         )
         
-        settler_messages = [
-            {"role": "system", "content": settler_system},
-            {"role": "user", "content": settler_user}
-        ]
-        settler_response = self.llm_client.chat_completion(settler_messages)
+        # 创建提示词
+        settler_prompt = self.create_prompt(settler_system, settler_user)
+        
+        # 运行链
+        settler_response = self.run_chain(settler_prompt)
         
         # 解析结算输出
         return {
-            'settlement': self._parse_settlement_output(settler_response, genre_profile)
+            'settlement': self._parse_settlement_output(settler_response['content'], genre_profile)
         }
     
     def _build_observer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], language: str) -> str:
