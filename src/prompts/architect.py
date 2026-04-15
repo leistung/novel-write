@@ -260,6 +260,24 @@ update_book_state_prompt = """
 5. 更新情感弧线
 6. 更新角色交互矩阵
 7. 生成结构化的更新结果
+8. **必须使用以下格式分隔不同部分**：
+   === SECTION: current_state ===
+   [当前状态卡内容]
+   
+   === SECTION: pending_hooks ===
+   [伏笔池内容]
+   
+   === SECTION: particle_ledger ===
+   [粒子账本内容]
+   
+   === SECTION: subplot_board ===
+   [支线进度板内容]
+   
+   === SECTION: emotional_arcs ===
+   [情感弧线内容]
+   
+   === SECTION: character_matrix ===
+   [角色交互矩阵内容]
         """
 
 # 架构师提示词字典（保持向后兼容）

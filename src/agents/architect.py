@@ -253,12 +253,28 @@ class ArchitectAgent(BaseAgent):
         token_usage = response['token_usage']
         
         # 解析输出
+        sections = {
+            'current_state': '',
+            'pending_hooks': '',
+            'particle_ledger': '',
+            'subplot_board': '',
+            'emotional_arcs': '',
+            'character_matrix': ''
+        }
+
+        current_section = None
+        for line in content.split('\n'):
+            if line.startswith('=== SECTION: '):
+                current_section = line.split('=== SECTION: ')[1].split(' ===')[0]
+            elif current_section:
+                sections[current_section] += line + '\n'
+
         return {
-            'updated_state': content,
-            'updated_hooks': content,
-            'updated_ledger': content,
-            'updated_subplots': content,
-            'updated_emotional_arcs': content,
-            'updated_character_matrix': content
+            'updated_state': sections['current_state'].strip(),
+            'updated_hooks': sections['pending_hooks'].strip(),
+            'updated_ledger': sections['particle_ledger'].strip(),
+            'updated_subplots': sections['subplot_board'].strip(),
+            'updated_emotional_arcs': sections['emotional_arcs'].strip(),
+            'updated_character_matrix': sections['character_matrix'].strip()
         }
 

@@ -124,7 +124,7 @@ class NovelWriteWorkflow:
             
             # 获取前一章摘要
             previous_chapter = get_chapter_by_number(db, book_id, chapter_num - 1)
-            previous_chapter_summary = previous_chapter.chapter_summary if previous_chapter else ""
+            previous_chapter_summary = previous_chapter.chapter_outline if previous_chapter else ""
             
             # 规划章节
             chapter_plan = self.architect_agent.plan_chapter(
