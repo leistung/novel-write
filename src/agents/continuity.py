@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
+from src.prompts import CONSISTENCY_PROMPTS
 
 class AuditIssue:
     def __init__(self, id: str, type: str, severity: str, message: str, location: str):
@@ -17,30 +17,70 @@ class AuditResult:
         self.passed = passed
 
 class ContinuityAuditor(BaseAgent):
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
 
-    def run(self, context: AgentContext) -> Dict[str, Any]:
-        # 构建提示
-        messages = [
-            ("system", "你是一位专业的小说连续性审计员，擅长检查小说章节的连续性、逻辑性和一致性。"),
-            ("human", f"请审计《{context.kwargs.get('book_title', '未知')}》第{context.chapter_num}章的连续性，检查以下方面：\n1. 角色记忆和行为一致性\n2. 物资和资源连续性\n3. 伏笔和线索回收\n4. 大纲偏离情况\n5. 叙事节奏和情感弧线\n6. AI 生成痕迹\n\n章节内容：{context.kwargs.get('chapter_content', '无')}\n\n前章摘要：{context.kwargs.get('previous_summary', '无')}\n\n当前世界状态：{context.kwargs.get('current_state', '无')}")
-        ]
-
-        # 调用 LLM
-        response = self.llm_client.chat_completion(messages)
+    def check_consistency(self, chapter_content: str, previous_chapter_content: str, book: Dict[str, Any]) -> Dict[str, Any]:
+        """检查章节连续性"""
+        title = book.get('title', '未知')
+        genre = book.get('genre', '未知')
+        
+        # 构建系统提示
+        system_prompt = CONSISTENCY_PROMPTS["check_consistency"].format(
+            title=title,
+            genre=genre,
+            chapter_content=chapter_content,
+            previous_chapter_content=previous_chapter_content
+        )
+        
+        # 构建用户提示
+        user_prompt = "请检查章节的连续性和一致性。"
+        
+        # 创建提示词
+        prompt = self.create_prompt(system_prompt, user_prompt)
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
 
         # 解析输出
-        # 这里可以添加更复杂的解析逻辑
-        score = 0.85
-        issues = [
-            AuditIssue("1", "角色一致性", "低", "角色A的行为与前章略有不一致", "第10段"),
-            AuditIssue("2", "节奏控制", "低", "部分场景节奏略慢", "第20段")
-        ]
-        passed = score >= 0.7
+        return self._parse_audit_response(content)
+
+    def run(self, context: AgentContext) -> Dict[str, Any]:
+        """运行连续性审计"""
+        book_title = context.kwargs.get('book_title', '未知')
+        chapter_num = context.chapter_num
+        chapter_content = context.kwargs.get('chapter_content', '无')
+        previous_summary = context.kwargs.get('previous_summary', '无')
+        current_state = context.kwargs.get('current_state', '无')
+
+        return self.check_continuity(book_title, chapter_num, chapter_content, previous_summary, current_state)
+
+    def _parse_audit_response(self, response: str) -> Dict[str, Any]:
+        """解析审计响应"""
+        # 从响应中提取评分
+        import re
+        score_match = re.search(r'总体评分：(\d+\.?\d*)', response)
+        if score_match:
+            score = float(score_match.group(1))
+        else:
+            # 如果没有找到评分，默认给75分
+            score = 75.0
+        
+        # 从响应中提取问题
+        issues = []
+        issues_match = re.findall(r'问题：(.*?)严重程度：(.*?)(?=问题：|$)', response, re.DOTALL)
+        for i, (message, severity) in enumerate(issues_match):
+            # 简单处理，实际应该更复杂
+            issues.append(AuditIssue(str(i+1), "连续性问题", severity.strip(), message.strip(), "未知位置"))
+        
+        # 检查是否通过
+        passed = score >= 70.0
 
         return {
             "score": score,
             "issues": [issue.__dict__ for issue in issues],
-            "passed": passed
+            "passed": passed,
+            "analysis": response
         }

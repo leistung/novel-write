@@ -1,13 +1,14 @@
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
-from src.llm.provider import LLMClient
+from src.prompts import WRITER_PROMPTS
 import os
 import re
 
 class WriteChapterInput:
-    def __init__(self, book: Dict[str, Any], chapter_number: int, external_context: Optional[str] = None, word_count_override: Optional[int] = None, temperature_override: Optional[float] = None, book_dir: Optional[str] = None):
+    def __init__(self, book: Dict[str, Any], chapter_number: int, chapter_plan: Dict[str, Any], external_context: Optional[str] = None, word_count_override: Optional[int] = None, temperature_override: Optional[float] = None, book_dir: Optional[str] = None):
         self.book = book
         self.chapter_number = chapter_number
+        self.chapter_plan = chapter_plan
         self.external_context = external_context
         self.word_count_override = word_count_override
         self.temperature_override = temperature_override
@@ -39,13 +40,44 @@ class WriteChapterOutput:
         self.token_usage = token_usage
 
 class WriterAgent(BaseAgent):
-    def __init__(self, llm_client: LLMClient):
-        super().__init__(llm_client)
+    def __init__(self, llm):
+        super().__init__(llm)
+
+    def check_chapter_outline(self, chapter_outline: str, book_data: Dict[str, Any]) -> Dict[str, Any]:
+        """检查章节大纲是否合理"""
+        genre = book_data.get('genre', '未知')
+        title = book_data.get('title', '未知')
+        
+        # 创建提示词
+        system_prompt = WRITER_PROMPTS["check_chapter_outline"].format(
+            genre=genre,
+            title=title,
+            chapter_outline=chapter_outline
+        )
+        
+        # 创建提示
+        prompt = self.create_prompt(system_prompt, "请评估上述章节大纲的合理性，并提供修改建议。")
+        
+        # 运行链
+        response = self.run_chain(prompt)
+        content = response['content']
+        token_usage = response['token_usage']
+        
+        # 解析结果
+        # 这里简化处理，实际应该根据LLM的输出格式进行解析
+        is_valid = "合理" in content or "可行" in content
+        suggestions = content
+        
+        return {
+            'is_valid': is_valid,
+            'suggestions': suggestions
+        }
 
     def write_chapter(self, input: WriteChapterInput) -> WriteChapterOutput:
         """生成章节内容"""
         book = input.book
         chapter_number = input.chapter_number
+        chapter_plan = input.chapter_plan
         external_context = input.external_context
         word_count_override = input.word_count_override
         temperature_override = input.temperature_override
@@ -54,7 +86,6 @@ class WriterAgent(BaseAgent):
         # 加载相关文件
         story_bible = self._read_file(book_dir, "story_bible.md") if book_dir else "(故事圣经尚未创建)"
         volume_outline = self._read_file(book_dir, "volume_outline.md") if book_dir else "(卷纲尚未创建)"
-        style_guide = self._read_file(book_dir, "style_guide.md") if book_dir else "(风格指南尚未创建)"
         current_state = self._read_file(book_dir, "current_state.md") if book_dir else "(当前状态尚未创建)"
         ledger = self._read_file(book_dir, "particle_ledger.md") if book_dir else "(资源账本尚未创建)"
         hooks = self._read_file(book_dir, "pending_hooks.md") if book_dir else "(伏笔池尚未创建)"
@@ -62,91 +93,50 @@ class WriterAgent(BaseAgent):
         subplot_board = self._read_file(book_dir, "subplot_board.md") if book_dir else "(支线进度板尚未创建)"
         emotional_arcs = self._read_file(book_dir, "emotional_arcs.md") if book_dir else "(情感弧线尚未创建)"
         character_matrix = self._read_file(book_dir, "character_matrix.md") if book_dir else "(角色交互矩阵尚未创建)"
-        style_profile_raw = self._read_file(book_dir, "style_profile.json") if book_dir else "(风格配置尚未创建)"
-        parent_canon = self._read_file(book_dir, "parent_canon.md") if book_dir else "(正传正典尚未创建)"
-        fanfic_canon_raw = self._read_file(book_dir, "fanfic_canon.md") if book_dir else "(同人正典尚未创建)"
-
-        # 加载最近章节
-        recent_chapters = ""
-        fingerprint_chapters = ""
 
         # 加载题材配置
         genre = book.get('genre', '未知')
         genre_profile = self._get_genre_profile(genre)
         book_rules = self._get_book_rules(book)
 
-        # 构建风格指纹
-        style_fingerprint = self._build_style_fingerprint(style_profile_raw)
-
-        # 提取对话指纹
-        dialogue_fingerprints = self._extract_dialogue_fingerprints(fingerprint_chapters, story_bible)
-
-        # 查找相关摘要
-        relevant_summaries = self._find_relevant_summaries(chapter_summaries, volume_outline, chapter_number)
-
-        # 构建同人上下文
-        fanfic_context = None
-        has_fanfic_canon = fanfic_canon_raw != "(同人正典尚未创建)"
-        if has_fanfic_canon and book_rules.get('fanficMode'):
-            fanfic_context = {
-                'fanficCanon': fanfic_canon_raw,
-                'fanficMode': book_rules.get('fanficMode'),
-                'allowedDeviations': book_rules.get('allowedDeviations', [])
-            }
-
         # 第一阶段：创意写作
         resolved_language = book.get('language', 'zh') or genre_profile.get('language', 'zh')
         creative_system_prompt = self._build_writer_system_prompt(
-            book, genre_profile, book_rules, style_guide, style_fingerprint,
-            chapter_number, "creative", fanfic_context, resolved_language
+            book, genre_profile, book_rules, chapter_number, resolved_language
         )
-
-        # 智能上下文过滤
-        filtered_hooks = self._filter_hooks(hooks)
-        filtered_summaries = self._filter_summaries(chapter_summaries, chapter_number)
-        filtered_subplots = self._filter_subplots(subplot_board)
-        filtered_arcs = self._filter_emotional_arcs(emotional_arcs, chapter_number)
-        filtered_matrix = self._filter_character_matrix(character_matrix, volume_outline, book_rules.get('protagonist', {}).get('name'))
-
-        # POV 感知过滤
-        pov_character = self._extract_pov_from_outline(volume_outline, chapter_number)
-        pov_filtered_matrix = self._filter_matrix_by_pov(filtered_matrix, pov_character) if pov_character else filtered_matrix
-        pov_filtered_hooks = self._filter_hooks_by_pov(filtered_hooks, pov_character, chapter_summaries) if pov_character else filtered_hooks
 
         # 构建用户提示
         creative_user_prompt = self._build_user_prompt({
             'chapter_number': chapter_number,
+            'chapter_plan': chapter_plan,
             'story_bible': story_bible,
             'volume_outline': volume_outline,
             'current_state': current_state,
             'ledger': ledger if genre_profile.get('numericalSystem') else '',
-            'hooks': pov_filtered_hooks,
-            'recent_chapters': recent_chapters,
+            'hooks': hooks,
             'word_count': word_count_override or book.get('chapter_words', 3000),
             'external_context': external_context,
-            'chapter_summaries': filtered_summaries,
-            'subplot_board': filtered_subplots,
-            'emotional_arcs': filtered_arcs,
-            'character_matrix': pov_filtered_matrix,
-            'dialogue_fingerprints': dialogue_fingerprints,
-            'relevant_summaries': relevant_summaries,
-            'parent_canon': parent_canon if parent_canon != "(正传正典尚未创建)" else None,
+            'chapter_summaries': chapter_summaries,
+            'subplot_board': subplot_board,
+            'emotional_arcs': emotional_arcs,
+            'character_matrix': character_matrix,
             'language': resolved_language
         })
 
         # 调用 LLM 进行创意写作
         creative_temperature = temperature_override or 0.7
         target_words = word_count_override or book.get('chapter_words', 3000)
-        creative_max_tokens = max(8192, int(target_words * 2))
 
-        messages = [
-            {"role": "system", "content": creative_system_prompt},
-            {"role": "user", "content": creative_user_prompt}
-        ]
-        creative_response = self.llm_client.chat_completion(messages)
+        # 创建提示词
+        prompt = self.create_prompt(creative_system_prompt, creative_user_prompt)
+
+        # 运行链
+        creative_response = self.run_chain(prompt)
+        content = creative_response['content']
+        token_usage = creative_response['token_usage']
 
         # 解析创意输出
-        creative = self._parse_creative_output(chapter_number, creative_response)
+        creative = self._parse_creative_output(chapter_number, content)
 
         # 第二阶段：状态结算
         settle_result = self._settle({
@@ -170,7 +160,6 @@ class WriterAgent(BaseAgent):
 
         # 写后验证
         rule_violations = self._validate_post_write(creative['content'], genre_profile, book_rules)
-        ai_tell_issues = self._analyze_ai_tells(creative['content'])
 
         post_write_errors = [v for v in rule_violations if v['severity'] == 'error']
         post_write_warnings = [v for v in rule_violations if v['severity'] == 'warning']
@@ -192,7 +181,7 @@ class WriterAgent(BaseAgent):
             updated_character_matrix=settlement['updated_character_matrix'],
             post_write_errors=post_write_errors,
             post_write_warnings=post_write_warnings,
-            token_usage=None  # 实际项目中应该从 LLM 响应中提取
+            token_usage=token_usage  # 从 LLM 响应中提取
         )
 
     def _get_genre_profile(self, genre: str) -> Dict[str, Any]:
@@ -222,7 +211,7 @@ class WriterAgent(BaseAgent):
             'prohibitions': ['禁止血腥暴力', '禁止宣扬迷信', '禁止违背社会主义核心价值观']
         }
 
-    def _build_writer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], book_rules: Dict[str, Any], style_guide: str, style_fingerprint: Optional[str], chapter_number: int, mode: str, fanfic_context: Optional[Dict[str, Any]], language: str) -> str:
+    def _build_writer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], book_rules: Dict[str, Any], chapter_number: int, language: str) -> str:
         """构建作家系统提示"""
         genre = book.get('genre', '未知')
         platform = book.get('platform', '其他')
@@ -231,7 +220,16 @@ class WriterAgent(BaseAgent):
         
         writing_style_block = f"\n\n## 作者文笔参考\n以下是用户提供的作者文笔参考，请在写作中体现相应的风格：\n\n{writing_style}\n" if writing_style else ""
         
-        return f"你是一位专业的{genre}小说作家，擅长创作精彩的故事情节。你熟悉{platform}平台的读者偏好，能够创作出符合平台口味的作品。{writing_style_block}\n\n要求：\n- 每章字数：严格控制在{chapter_word_count}字左右，误差不超过10%\n- 语言流畅，符合网络小说阅读习惯\n- 节奏明快，有适当的冲突和张力\n- 人物刻画鲜明，有独立动机\n- 场景描写生动，有画面感\n- 情节逻辑连贯，推进合理\n- 符合{genre}题材特征\n\n重要提示：请确保生成的章节字数达到要求，不要少于{chapter_word_count * 0.9}字。如果字数不足，将无法通过审核。"
+        # 计算最小字数要求
+        min_word_count = int(chapter_word_count * 0.9)
+        
+        return WRITER_PROMPTS["write_chapter"].format(
+            genre=genre,
+            platform=platform,
+            chapter_word_count=chapter_word_count,
+            min_word_count=min_word_count,
+            writing_style_block=writing_style_block
+        )
 
     def _filter_hooks(self, hooks: str) -> str:
         """过滤伏笔"""
@@ -268,21 +266,18 @@ class WriterAgent(BaseAgent):
     def _build_user_prompt(self, params: Dict[str, Any]) -> str:
         """构建用户提示"""
         chapter_number = params['chapter_number']
+        chapter_plan = params['chapter_plan']
         story_bible = params['story_bible']
         volume_outline = params['volume_outline']
         current_state = params['current_state']
         ledger = params['ledger']
         hooks = params['hooks']
-        recent_chapters = params['recent_chapters']
         word_count = params['word_count']
         external_context = params['external_context']
         chapter_summaries = params['chapter_summaries']
         subplot_board = params['subplot_board']
         emotional_arcs = params['emotional_arcs']
         character_matrix = params['character_matrix']
-        dialogue_fingerprints = params['dialogue_fingerprints']
-        relevant_summaries = params['relevant_summaries']
-        parent_canon = params['parent_canon']
         language = params['language']
 
         context_block = f"\n## 外部指令\n以下是来自外部系统的创作指令，请在本章中融入：\n\n{external_context}\n" if external_context else ""
@@ -291,21 +286,31 @@ class WriterAgent(BaseAgent):
         subplot_block = f"\n## 支线进度板\n{subplot_board}\n" if subplot_board != "(支线进度板尚未创建)" else ""
         emotional_block = f"\n## 情感弧线\n{emotional_arcs}\n" if emotional_arcs != "(情感弧线尚未创建)" else ""
         matrix_block = f"\n## 角色交互矩阵\n{character_matrix}\n" if character_matrix != "(角色交互矩阵尚未创建)" else ""
-        fingerprint_block = f"\n## 角色对话指纹\n{dialogue_fingerprints}\n" if dialogue_fingerprints else ""
-        relevant_block = f"\n## 相关历史章节摘要\n{relevant_summaries}\n" if relevant_summaries else ""
-        canon_block = f"\n## 正传正典参照（番外写作专用）\n本书是番外作品。以下正典约束不可违反，角色不得引用超出其信息边界的信息。\n{parent_canon}\n" if parent_canon else ""
+
+        # 构建章节规划块
+        chapter_plan_block = "\n## 章节规划\n"
+        if isinstance(chapter_plan, dict):
+            if 'chapter_outline' in chapter_plan:
+                chapter_plan_block += f"### 章节大纲\n{chapter_plan['chapter_outline']}\n\n"
+            if 'character_states' in chapter_plan:
+                chapter_plan_block += f"### 人物状态\n{chapter_plan['character_states']}\n\n"
+            if 'setting' in chapter_plan:
+                chapter_plan_block += f"### 场景设定\n{chapter_plan['setting']}\n\n"
+            if 'plot_points' in chapter_plan:
+                chapter_plan_block += "### 情节点\n" + "\n".join([f"- {point}" for point in chapter_plan['plot_points']]) + "\n\n"
+        else:
+            chapter_plan_block += str(chapter_plan) + "\n\n"
 
         if language == "en":
             return f"""Write chapter {chapter_number}.
 {context_block}
+{chapter_plan_block}
 ## Current State
 {current_state}
 {ledger_block}
 ## Plot Threads
 {hooks}
-{summaries_block}{subplot_block}{emotional_block}{matrix_block}{fingerprint_block}{relevant_block}{canon_block}
-## Recent Chapters
-{recent_chapters or "(This is the first chapter, no previous text)"}
+{summaries_block}{subplot_block}{emotional_block}{matrix_block}
 
 ## Worldbuilding
 {story_bible}
@@ -326,14 +331,13 @@ Requirements:
         else:
             return f"""请续写第{chapter_number}章。
 {context_block}
+{chapter_plan_block}
 ## 当前状态卡
 {current_state}
 {ledger_block}
 ## 伏笔池
 {hooks}
-{summaries_block}{subplot_block}{emotional_block}{matrix_block}{fingerprint_block}{relevant_block}{canon_block}
-## 最近章节
-{recent_chapters or "(这是第一章，无前文)"}
+{summaries_block}{subplot_block}{emotional_block}{matrix_block}
 
 ## 世界观设定
 {story_bible}
@@ -408,12 +412,12 @@ Requirements:
         observer_system = self._build_observer_system_prompt(book, genre_profile, resolved_language)
         observer_user = self._build_observer_user_prompt(chapter_number, title, content, resolved_language)
         
-        observer_messages = [
-            {"role": "system", "content": observer_system},
-            {"role": "user", "content": observer_user}
-        ]
-        observer_response = self.llm_client.chat_completion(observer_messages)
-        observations = observer_response
+        # 创建提示词
+        observer_prompt = self.create_prompt(observer_system, observer_user)
+        
+        # 运行链
+        observer_response = self.run_chain(observer_prompt)
+        observations = observer_response['content']
         
         # 第二阶段：Reflector - 将观察结果合并到状态文件中
         settler_system = self._build_settler_system_prompt(book, genre_profile, resolved_language)
@@ -423,15 +427,15 @@ Requirements:
             volume_outline, observations
         )
         
-        settler_messages = [
-            {"role": "system", "content": settler_system},
-            {"role": "user", "content": settler_user}
-        ]
-        settler_response = self.llm_client.chat_completion(settler_messages)
+        # 创建提示词
+        settler_prompt = self.create_prompt(settler_system, settler_user)
+        
+        # 运行链
+        settler_response = self.run_chain(settler_prompt)
         
         # 解析结算输出
         return {
-            'settlement': self._parse_settlement_output(settler_response, genre_profile)
+            'settlement': self._parse_settlement_output(settler_response['content'], genre_profile)
         }
     
     def _build_observer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], language: str) -> str:
@@ -439,51 +443,7 @@ Requirements:
         is_english = language == "en"
         lang_prefix = "【LANGUAGE OVERRIDE】ALL output MUST be in English.\n\n" if is_english else ""
         
-        return f"""{lang_prefix}你是章节观察员。你的任务是从章节正文中提取所有事实性变化。
-
-## 提取维度
-
-从正文中提取以下信息：
-1. **角色变化**：出场、退场、状态变化（受伤/突破/死亡等）、情绪变化
-2. **位置变化**：场景转换、地点移动
-3. **物品/资源**：获得、消耗、转移
-4. **伏笔动态**：新埋设的伏笔、推进的伏笔、回收的伏笔
-5. **关系变化**：角色间关系的变化、新的信息边界
-6. **主线进展**：剧情推进到哪个阶段
-7. **支线进展**：支线剧情的进展
-
-## 输出格式
-
-请按照以下格式输出观察结果：
-
-### 角色变化
-| 角色 | 变化类型 | 详细描述 |
-|------|----------|----------|
-
-### 位置变化
-| 场景 | 角色 | 时间点 |
-|------|------|--------|
-
-### 物品/资源
-| 物品/资源 | 变化类型 | 相关角色 |
-|-----------|----------|----------|
-
-### 伏笔动态
-| 伏笔描述 | 类型 | 涉及角色 |
-|----------|------|----------|
-
-### 关系变化
-| 角色A | 角色B | 变化描述 |
-|-------|-------|----------|
-
-### 主线进展
-（一句话描述主线进展）
-
-### 支线进展
-| 支线描述 | 进展状态 |
-|----------|----------|
-
-请确保提取所有事实性变化，不要遗漏任何细节。"""
+        return f"""{lang_prefix}{WRITER_PROMPTS['observer']}"""
 
     def _build_observer_user_prompt(self, chapter_number: int, title: str, content: str, language: str) -> str:
         """构建Observer用户提示"""
@@ -529,92 +489,18 @@ Please extract all factual changes according to the format specified in the syst
 - 回收伏笔：伏笔在本章明确揭示/解决 → 状态改为"已回收"
 - 延后伏笔：超过5章未推进 → 标注"延后"，备注原因"""
 
-        return f"""{lang_prefix}你是状态追踪分析师。给定新章节正文和当前 truth 文件，你的任务是产出更新后的 truth 文件。
-
-## 工作模式
-
-你不是在写作。你的任务是：
-1. 仔细阅读观察日志和正文，提取所有状态变化
-2. 基于"当前追踪文件"做增量更新
-3. 严格按照 === TAG === 格式输出
-
-## 分析维度
-
-从正文中提取以下信息：
-- 角色出场、退场、状态变化（受伤/突破/死亡等）
-- 位置移动、场景转换
-- 物品/资源的获得与消耗
-- 伏笔的埋设、推进、回收
-- 情感弧线变化
-- 支线进展
-- 角色间关系变化、新的信息边界
-
-## 书籍信息
-
-- 标题：{book.get('title', '未知')}
-- 题材：{genre_profile.get('name', genre)}（{genre}）
-- 平台：{platform}
-{numerical_block}
-{hook_rules}
-
-## 输出格式（必须严格遵循）
-
-=== POST_SETTLEMENT ===
-（如有变动，必须输出Markdown表格）
-| 结算项 | 本章记录 | 备注 |
-|--------|----------|------|
-
-=== UPDATED_STATE ===
-(更新后的完整状态卡，Markdown表格格式，必须包含以下列)
-| 章节 | 当前位置 | 主角状态 | 当前目标 | 敌人/对手 | 已知真相 | 当前冲突 | 锚点 |
-|------|----------|----------|----------|-----------|----------|----------|------|
-
-=== UPDATED_LEDGER ===
-(更新后的完整资源账本，Markdown表格格式，如无数值系统则留空)
-| 章节 | 资源名 | 期初值 | 增量 | 期末值 | 依据 |
-|------|--------|--------|------|--------|------|
-
-=== UPDATED_HOOKS ===
-(更新后的完整伏笔池，Markdown表格格式)
-| Hook ID | 起始章 | 类型 | 状态 | 最近推进 | 预期回收 | 备注 |
-|---------|--------|------|------|----------|----------|------|
-
-=== CHAPTER_SUMMARY ===
-(本章摘要，Markdown表格格式)
-| 章节 | 标题 | 出场人物 | 关键事件 | 状态变化 | 伏笔动态 | 情绪基调 | 章节类型 |
-|------|------|----------|----------|----------|----------|----------|----------|
-
-=== UPDATED_SUBPLOTS ===
-(更新后的完整支线进度板，Markdown表格格式)
-| 支线ID | 支线名 | 相关角色 | 起始章 | 最近活跃章 | 状态 | 进度概述 | 回收ETA |
-|--------|--------|----------|--------|------------|------|----------|---------|
-
-=== UPDATED_EMOTIONAL_ARCS ===
-(更新后的完整情感弧线，Markdown表格格式)
-| 角色 | 章节 | 情绪状态 | 触发事件 | 强度(1-10) | 弧线方向 |
-|------|------|----------|----------|------------|----------|
-
-=== UPDATED_CHARACTER_MATRIX ===
-(更新后的角色交互矩阵，分三个子表)
-
-### 角色档案
-| 角色 | 核心标签 | 反差细节 | 说话风格 | 性格底色 | 与主角关系 | 核心动机 | 当前目标 |
-|------|----------|----------|----------|----------|------------|----------|----------|
-
-### 相遇记录
-| 角色A | 角色B | 首次相遇章 | 最近交互章 | 关系性质 | 关系变化 |
-|-------|-------|------------|------------|----------|----------|
-
-### 信息边界
-| 角色 | 已知信息 | 未知信息 | 信息来源章 |
-|------|----------|----------|------------|
-
-## 关键规则
-
-1. 状态卡和伏笔池必须基于"当前追踪文件"做增量更新，不是从零开始
-2. 正文中的每一个事实性变化都必须反映在对应的追踪文件中
-3. 不要遗漏细节：数值变化、位置变化、关系变化、信息变化都要记录
-4. 角色交互矩阵中的"信息边界"要准确——角色只知道他在场时发生的事"""
+        # 计算需要的参数
+        book_title = book.get('title', '未知')
+        genre_name = genre_profile.get('name', genre)
+        
+        return f"""{lang_prefix}{WRITER_PROMPTS['settler'].format(
+            book_title=book_title,
+            genre_name=genre_name,
+            genre=genre,
+            platform=platform,
+            numerical_block=numerical_block,
+            hook_rules=hook_rules
+        )}"""
 
     def _build_settler_user_prompt(self, chapter_number: int, title: str, content: str,
                                     current_state: str, ledger: str, hooks: str,
@@ -689,37 +575,26 @@ Please extract all factual changes according to the format specified in the syst
         # 这里简化处理，实际应该根据 TypeScript 项目的逻辑实现
         return []
 
-    def _analyze_ai_tells(self, content: str) -> Dict[str, Any]:
-        """分析 AI 痕迹"""
-        # 这里简化处理，实际应该根据 TypeScript 项目的逻辑实现
-        return {'issues': []}
 
-    def _build_style_fingerprint(self, style_profile_raw: str) -> Optional[str]:
-        """构建风格指纹"""
-        return None
-
-    def _extract_dialogue_fingerprints(self, recent_chapters: str, story_bible: str) -> str:
-        """提取对话指纹"""
-        return ""
-
-    def _find_relevant_summaries(self, chapter_summaries: str, volume_outline: str, chapter_number: int) -> str:
-        """查找相关摘要"""
-        return ""
 
     def run(self, context: AgentContext) -> Dict[str, Any]:
         """运行作家 Agent"""
         book = context.kwargs.get('book', {})
         chapter_number = context.chapter_num
+        chapter_plan = context.kwargs.get('chapter_plan', {})
         external_context = context.kwargs.get('external_context', None)
         word_count_override = context.kwargs.get('word_count_override', None)
         temperature_override = context.kwargs.get('temperature_override', None)
+        book_dir = context.kwargs.get('book_dir', None)
 
         input = WriteChapterInput(
             book=book,
             chapter_number=chapter_number,
+            chapter_plan=chapter_plan,
             external_context=external_context,
             word_count_override=word_count_override,
-            temperature_override=temperature_override
+            temperature_override=temperature_override,
+            book_dir=book_dir
         )
 
         output = self.write_chapter(input)
@@ -730,5 +605,11 @@ Please extract all factual changes according to the format specified in the syst
             'summary': output.chapter_summary,
             'title': output.title,
             'audit_score': 0.85,  # 模拟审计分数
-            'revisions': 0
+            'revisions': 0,
+            'updated_state': output.updated_state,
+            'updated_hooks': output.updated_hooks,
+            'updated_ledger': output.updated_ledger,
+            'updated_subplots': output.updated_subplots,
+            'updated_emotional_arcs': output.updated_emotional_arcs,
+            'updated_character_matrix': output.updated_character_matrix
         }

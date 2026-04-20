@@ -1,2 +1,8 @@
 __pycache__/
 .venv/
+.data/
+.log/
+.env
+.git
+.idea
+novel-write.db
