@@ -495,6 +495,51 @@ class NovelWriteWorkflow:
         })
         return result
     
+    def continue_chapters(self, book_id: int, start_chapter: int, count: int, external_context: Optional[str] = None) -> Dict[str, Any]:
+        """连续续写多个章节
+        
+        Args:
+            book_id: 书籍ID
+            start_chapter: 起始章节号
+            count: 续写章节数量
+            external_context: 外部指令（可选）
+            
+        Returns:
+            包含成功信息的字典
+        """
+        results = []
+        current_chapter = start_chapter
+        
+        for i in range(count):
+            self.log_manager.log_workflow('continue_chapters', f'开始续写第{current_chapter}章（{i+1}/{count}）', {'book_id': book_id, 'chapter_num': current_chapter})
+            
+            result = self.continue_chapter_workflow.invoke({
+                'book_id': book_id,
+                'chapter_num': current_chapter,
+                'external_context': external_context
+            })
+            
+            if 'error' in result:
+                self.log_manager.log_workflow('continue_chapters', f'第{current_chapter}章续写失败', {'error': result['error']})
+                return {
+                    'error': result['error'],
+                    'completed_count': i,
+                    'results': results
+                }
+            
+            results.append({
+                'chapter_num': current_chapter,
+                'result': result.get('result', {})
+            })
+            
+            self.log_manager.log_workflow('continue_chapters', f'第{current_chapter}章续写完成', {'chapter_num': current_chapter})
+            current_chapter += 1
+        
+        return {
+            'completed_count': count,
+            'results': results
+        }
+    
     def update_outline(self, book_id: int, new_outline: str) -> Dict[str, Any]:
         """修改大纲"""
         result = self.update_outline_workflow.invoke({

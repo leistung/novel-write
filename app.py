@@ -312,13 +312,23 @@ elif st.session_state.page == "book_detail":
             # 初始化session state
             if '续写中' not in st.session_state:
                 st.session_state['续写中'] = False
+            if '连续续写中' not in st.session_state:
+                st.session_state['连续续写中'] = False
             
-            if not st.session_state['续写中']:
-                if st.button(f"续写下一章（第{next_chapter}章）", use_container_width=True, type="primary"):
-                    st.session_state['续写中'] = True
-                    st.session_state['next_chapter'] = next_chapter
-                    st.rerun()
-            else:
+            if not st.session_state['续写中'] and not st.session_state['连续续写中']:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"续写下一章（第{next_chapter}章）", use_container_width=True, type="primary"):
+                        st.session_state['续写中'] = True
+                        st.session_state['next_chapter'] = next_chapter
+                        st.rerun()
+                with col2:
+                    chapter_count = st.number_input("连续续写章节数", min_value=2, max_value=10, value=3, key="continue_count")
+                    if st.button(f"连续续写 {chapter_count} 章", use_container_width=True):
+                        st.session_state['连续续写中'] = True
+                        st.session_state['连续续写数量'] = chapter_count
+                        st.rerun()
+            elif st.session_state['续写中']:
                 next_chapter = st.session_state['next_chapter']
                 external_context = st.text_input("外部指令（可选）", placeholder="请输入外部指令")
                 if st.button("确认续写", use_container_width=True, type="primary"):
@@ -332,6 +342,39 @@ elif st.session_state.page == "book_detail":
                     
                     # 重置状态
                     st.session_state['续写中'] = False
+                    st.rerun()
+                if st.button("取消", use_container_width=True):
+                    st.session_state['续写中'] = False
+                    st.rerun()
+            elif st.session_state['连续续写中']:
+                chapter_count = st.session_state['连续续写数量']
+                external_context = st.text_input("外部指令（可选）", placeholder="请输入外部指令")
+                st.info(f"将连续续写从第{next_chapter}章开始，共{chapter_count}章")
+                
+                if st.button("确认连续续写", use_container_width=True, type="primary"):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    for i in range(chapter_count):
+                        current_ch = next_chapter + i
+                        status_text.text(f"正在续写第{current_ch}章（{i+1}/{chapter_count}）...")
+                        progress_bar.progress((i + 1) / chapter_count)
+                        
+                        result = workflow.continue_chapter(book_id, current_ch, external_context)
+                        
+                        if 'error' in result:
+                            st.error(f"第{current_ch}章续写失败: {result['error']}")
+                            st.session_state['连续续写中'] = False
+                            st.rerun()
+                            break
+                    
+                    status_text.text("连续续写完成！")
+                    st.success(f"成功连续续写{chapter_count}章！")
+                    st.session_state['连续续写中'] = False
+                    st.rerun()
+                
+                if st.button("取消", use_container_width=True):
+                    st.session_state['连续续写中'] = False
                     st.rerun()
         
         with tab3:
