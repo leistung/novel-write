@@ -135,7 +135,7 @@ class NovelWriteWorkflow:
             self.log_manager.log_agent('Architect', '规划章节完成', {
                 'book_id': book_id, 
                 'chapter_num': chapter_num,
-                'chapter_outline': chapter_plan.chapter_outline[:100] + '...' if chapter_plan.chapter_outline else ''
+                'chapter_outline': chapter_plan.chapter_outline + '...' if chapter_plan.chapter_outline else ''
             })
             
             return {
@@ -163,7 +163,7 @@ class NovelWriteWorkflow:
                 'book_id': book_data['id'], 
                 'chapter_num': chapter_num, 
                 'is_valid': check_result['is_valid'],
-                'suggestions': check_result['suggestions'][:100] + '...' if check_result['suggestions'] else ''
+                'suggestions': check_result['suggestions'] + '...' if check_result['suggestions'] else ''
             })
             
             if not check_result['is_valid']:
@@ -192,13 +192,25 @@ class NovelWriteWorkflow:
             # 导入WriteChapterInput
             from src.agents.writer import WriteChapterInput
             
+            # 获取书籍目录
+            book_dir = self.file_manager.get_book_dir(book_data['id'])
+            
+            # 将chapter_plan对象转换为字典
+            chapter_plan_dict = {
+                'chapter_outline': chapter_plan.chapter_outline if hasattr(chapter_plan, 'chapter_outline') else str(chapter_plan),
+                'character_states': chapter_plan.character_states if hasattr(chapter_plan, 'character_states') else '',
+                'setting': chapter_plan.setting if hasattr(chapter_plan, 'setting') else '',
+                'plot_points': chapter_plan.plot_points if hasattr(chapter_plan, 'plot_points') else []
+            }
+            
             # 写章节
             input_data = WriteChapterInput(
                 book=book_data,
                 chapter_number=chapter_num,
-                chapter_plan=chapter_plan,
+                chapter_plan=chapter_plan_dict,
                 external_context=external_context,
-                word_count_override=book_data['chapter_words']
+                word_count_override=book_data['chapter_words'],
+                book_dir=book_dir
             )
             chapter_content = self.writer_agent.write_chapter(input_data)
             
@@ -210,7 +222,7 @@ class NovelWriteWorkflow:
                 'word_count': len(chapter_content.content),
                 'title': chapter_content.title,
                 'token_usage': token_usage_info,
-                'content_preview': chapter_content.content[:100] + '...' if chapter_content.content else ''
+                'content_preview': chapter_content.content + '...' if chapter_content.content else ''
             })
             
             # 保存到文件系统
@@ -289,7 +301,7 @@ class NovelWriteWorkflow:
                 'book_id': book_data['id'], 
                 'chapter_num': chapter_num, 
                 'score': score_result.get('score', 0),
-                'feedback': feedback[:100] + '...' if feedback else ''
+                'feedback': feedback + '...' if feedback else ''
             })
             
             if score_result.get('score', 0) < 70:
@@ -328,12 +340,13 @@ class NovelWriteWorkflow:
             
             # 保存到数据库
             db = next(get_db())
+            chapter_outline_str = chapter_plan.chapter_outline if hasattr(chapter_plan, 'chapter_outline') else chapter_plan.get('chapter_outline', '') if isinstance(chapter_plan, dict) else str(chapter_plan)
             chapter = create_chapter(db, {
                 'book_id': book_id,
                 'chapter_number': chapter_num,
                 'title': chapter_content.title,
                 'content': chapter_content.content,
-                'chapter_outline': chapter_plan.chapter_outline,
+                'chapter_outline': chapter_outline_str,
                 'word_count': chapter_content.word_count,
                 'audit_score': state['score_result']['score'],
                 'continuity_score': state['consistency_result']['score']

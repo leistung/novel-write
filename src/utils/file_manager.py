@@ -4,9 +4,10 @@ from typing import Dict, Any, Optional
 class FileManager:
     """文件管理工具类"""
 
-    def __init__(self, base_dir: str = "data"):
+    def __init__(self, base_dir: str = None):
+        if base_dir is None:
+            base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
         self.base_dir = base_dir
-        # 确保基础目录存在
         os.makedirs(base_dir, exist_ok=True)
 
     def get_book_dir(self, book_id: int) -> str:

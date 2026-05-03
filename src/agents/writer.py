@@ -42,6 +42,17 @@ class WriteChapterOutput:
 class WriterAgent(BaseAgent):
     def __init__(self, llm):
         super().__init__(llm)
+        import logging
+        self.logger = logging.getLogger('writer_agent')
+        self.logger.setLevel(logging.DEBUG)
+        
+        # 添加控制台handler
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
 
     def check_chapter_outline(self, chapter_outline: str, book_data: Dict[str, Any]) -> Dict[str, Any]:
         """检查章节大纲是否合理"""
@@ -129,6 +140,20 @@ class WriterAgent(BaseAgent):
 
         # 创建提示词
         prompt = self.create_prompt(creative_system_prompt, creative_user_prompt)
+
+        # 打印日志 - 输出完整的提示词内容
+        self.logger.info("=" * 80)
+        self.logger.info(f"【章节{chapter_number}】开始生成")
+        self.logger.info("=" * 80)
+        self.logger.info("\n【系统提示词 (System Prompt)】")
+        self.logger.info("-" * 60)
+        self.logger.info(creative_system_prompt)
+        self.logger.info("\n【用户提示词 (User Prompt)】")
+        self.logger.info("-" * 60)
+        self.logger.info(creative_user_prompt)
+        self.logger.info("\n" + "=" * 80)
+        self.logger.info(f"【章节{chapter_number}】提示词长度: 系统={len(creative_system_prompt)}字, 用户={len(creative_user_prompt)}字")
+        self.logger.info("=" * 80 + "\n")
 
         # 运行链
         creative_response = self.run_chain(prompt)
