@@ -160,8 +160,15 @@ class WriterAgent(BaseAgent):
         content = creative_response['content']
         token_usage = creative_response['token_usage']
 
+        # 打印LLM返回的原始内容用于调试
+        self.logger.info("\n" + "=" * 80)
+        self.logger.info(f"【章节{chapter_number}】LLM原始返回内容")
+        self.logger.info("-" * 60)
+        self.logger.info(content)
+        self.logger.info("=" * 80 + "\n")
+
         # 解析创意输出
-        creative = self._parse_creative_output(chapter_number, content)
+        creative = self._parse_creative_output(chapter_number, content, target_words)
 
         # 第二阶段：状态结算
         settle_result = self._settle({
@@ -388,29 +395,39 @@ Requirements:
 - 字数不足将无法通过审核，需要重写
 """
 
-    def _parse_creative_output(self, chapter_number: int, content: str) -> Dict[str, Any]:
+    def _parse_creative_output(self, chapter_number: int, content: str, target_words: int = 3000) -> Dict[str, Any]:
         """解析创意输出"""
-        # 这里简化处理，实际应该根据 TypeScript 项目的逻辑解析
-        word_count = len(content)
+        import re
+
+        title = f"第{chapter_number}章"
+        chapter_content = content
+
+        content = content.replace('\r\n', '\n')
+        title_match = re.search(r'CHAPTER_TITLE\s*\n\s*(.+?)(?:\n|$)', content, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            title = title_match.group(1).strip()
+
+        content_match = re.search(r'CHAPTER_CONTENT\s*\n([\s\S]+)$', content, re.IGNORECASE)
+        if content_match:
+            chapter_content = content_match.group(1).strip()
+
+        word_count = len(chapter_content)
         
-        # 检查字数是否达标（这里假设标准字数为3000字）
-        standard_word_count = 3000
+        standard_word_count = target_words
         min_word_count = standard_word_count * 0.9
         
         if word_count < min_word_count:
-            # 字数不足，返回错误信息
             return {
-                'title': f"第{chapter_number}章",
-                'content': content,
+                'title': title,
+                'content': chapter_content,
                 'word_count': word_count,
                 'pre_write_check': f"写作自检表：本章字数不足，要求{standard_word_count}字，实际{word_count}字，请重写",
                 'error': f"字数不足，要求{standard_word_count}字，实际{word_count}字"
             }
         else:
-            # 字数达标
             return {
-                'title': f"第{chapter_number}章",
-                'content': content,
+                'title': title,
+                'content': chapter_content,
                 'word_count': word_count,
                 'pre_write_check': f"写作自检表：本章符合卷纲要求，字数{word_count}字"
             }
