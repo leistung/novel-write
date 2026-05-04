@@ -84,3 +84,18 @@ class FileManager:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
         return file_path
+
+    def save_chapter_summary(self, book_id: int, summary: str) -> str:
+        """保存章节摘要"""
+        file_path = os.path.join(self.get_book_dir(book_id), "chapter_summaries.md")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(summary)
+        return file_path
+
+    def read_chapter_summary(self, book_id: int) -> str:
+        """读取章节摘要"""
+        file_path = os.path.join(self.get_book_dir(book_id), "chapter_summaries.md")
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return ""

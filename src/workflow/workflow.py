@@ -327,18 +327,31 @@ class NovelWriteWorkflow:
             chapter_num = state['chapter_num']
             chapter_content = state['chapter_content']
             chapter_plan = state['chapter_plan']
-            current_state = state['current_state']
             
             # 记录工作流开始
             self.log_manager.log_workflow('continue_chapter', '开始更新书籍状态', {'book_id': book_id, 'chapter_num': chapter_num})
             
-            # 更新状态
-            updated_state = self.architect_agent.update_book_state(
-                book_data, chapter_num, chapter_content.content, "", current_state, ""
-            )
+            # 读取历史章节摘要
+            existing_summary = self.file_manager.read_chapter_summary(book_id)
             
-            # 记录Agent执行
-            self.log_manager.log_agent('Architect', '更新书籍状态完成', {'book_id': book_id, 'chapter_num': chapter_num})
+            # 构建新章节摘要 - 使用 writer_agent 生成的 chapter_summary
+            new_chapter_summary = f"第{chapter_num}章 {chapter_content.title}：{chapter_content.chapter_summary}"
+            
+            # 追加新章节摘要
+            if existing_summary:
+                updated_chapter_summary = existing_summary + "\n" + new_chapter_summary
+            else:
+                updated_chapter_summary = new_chapter_summary
+            
+            # 直接使用 writer_agent 结算返回的结果，不要再调用 architect_agent
+            final_updated_state = chapter_content.updated_state
+            final_updated_hooks = chapter_content.updated_hooks
+            final_updated_subplots = chapter_content.updated_subplots
+            final_updated_emotional_arcs = chapter_content.updated_emotional_arcs
+            final_updated_character_matrix = chapter_content.updated_character_matrix
+            
+            # 记录使用 writer_agent 结果
+            self.log_manager.log_agent('Writer', '使用结算结果更新状态文件', {'book_id': book_id, 'chapter_num': chapter_num})
             
             # 保存到数据库
             db = next(get_db())
@@ -356,25 +369,27 @@ class NovelWriteWorkflow:
             
             # 更新书籍状态
             update_book(db, book_id, {
-                'current_state': updated_state['updated_state'],
-                'pending_hooks': updated_state['updated_hooks'],
-                'subplot_board': updated_state['updated_subplots'],
-                'emotional_arcs': updated_state['updated_emotional_arcs'],
-                'character_matrix': updated_state['updated_character_matrix']
+                'current_state': final_updated_state,
+                'pending_hooks': final_updated_hooks,
+                'subplot_board': final_updated_subplots,
+                'emotional_arcs': final_updated_emotional_arcs,
+                'character_matrix': final_updated_character_matrix,
+                'chapter_summaries': updated_chapter_summary
             })
             
             # 记录数据库操作
             self.log_manager.log_workflow('continue_chapter', '保存到数据库', {'book_id': book_id, 'chapter_id': chapter.id, 'chapter_num': chapter_num})
             
             # 保存到文件系统
-            self.file_manager.save_current_state(book_id, updated_state['updated_state'])
-            self.file_manager.save_pending_hooks(book_id, updated_state['updated_hooks'])
-            self.file_manager.save_subplot_board(book_id, updated_state['updated_subplots'])
-            self.file_manager.save_emotional_arcs(book_id, updated_state['updated_emotional_arcs'])
-            self.file_manager.save_character_matrix(book_id, updated_state['updated_character_matrix'])
+            self.file_manager.save_current_state(book_id, final_updated_state)
+            self.file_manager.save_pending_hooks(book_id, final_updated_hooks)
+            self.file_manager.save_subplot_board(book_id, final_updated_subplots)
+            self.file_manager.save_emotional_arcs(book_id, final_updated_emotional_arcs)
+            self.file_manager.save_character_matrix(book_id, final_updated_character_matrix)
+            self.file_manager.save_chapter_summary(book_id, updated_chapter_summary)
             
             # 记录文件保存
-            self.log_manager.log_workflow('continue_chapter', '保存状态到文件系统', {'book_id': book_id, 'files': ['current_state.md', 'pending_hooks.md', 'subplot_board.md', 'emotional_arcs.md', 'character_matrix.md']})
+            self.log_manager.log_workflow('continue_chapter', '保存状态到文件系统', {'book_id': book_id, 'files': ['current_state.md', 'pending_hooks.md', 'subplot_board.md', 'emotional_arcs.md', 'character_matrix.md', 'chapter_summaries.md']})
             
             return {
                 'result': {
