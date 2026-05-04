@@ -166,6 +166,9 @@ with st.sidebar:
     if st.button("📋 日志输出", use_container_width=True):
         st.session_state.page = "logs"
         st.rerun()
+    if st.button("📊 工作流图", use_container_width=True):
+        st.session_state.page = "workflow_diagram"
+        st.rerun()
     
     st.markdown("---")
     st.markdown("### 关于")
@@ -492,6 +495,41 @@ elif st.session_state.page == "view_chapter":
         if st.button("返回章节管理", use_container_width=True, type="primary"):
             st.session_state.page = "book_detail"
             st.rerun()
+
+elif st.session_state.page == "workflow_diagram":
+    st.title("工作流图")
+    st.markdown("---")
+
+    workflow = NovelWriteWorkflow()
+
+    workflow_type = st.selectbox(
+        "选择工作流",
+        options=['continue_chapter', 'create_book', 'update_outline', 'update_chapter'],
+        format_func=lambda x: {
+            'continue_chapter': '续写章节',
+            'create_book': '创建书籍',
+            'update_outline': '修改大纲',
+            'update_chapter': '修改章节'
+        }[x],
+        index=0
+    )
+
+    st.markdown("### 文本结构")
+    with st.expander("查看文本结构", expanded=True):
+        workflow.print_workflow_structure(workflow_type)
+
+    st.markdown("### 流程图")
+    try:
+        result = workflow.export_workflow_diagram(workflow_type)
+        if result:
+            if isinstance(result, bytes):
+                st.image(result, caption=f"{workflow_type} 工作流图", width=600)
+            else:
+                st.markdown("```mermaid")
+                st.markdown(result)
+                st.markdown("```")
+    except Exception as e:
+        st.error(f"生成流程图失败: {str(e)}")
 
 elif st.session_state.page == "logs":
     st.title("日志输出台")

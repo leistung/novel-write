@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 from src.agents.architect import ArchitectAgent
 from src.agents.writer import WriterAgent
@@ -11,19 +11,21 @@ from src.utils.file_manager import FileManager
 from src.utils.log_manager import LogManager
 from sqlalchemy.orm import Session
 
-class WorkflowState:
-    """工作流状态"""
-    def __init__(self):
-        self.book_id: Optional[int] = None
-        self.book_data: Optional[Dict[str, Any]] = None
-        self.chapter_num: Optional[int] = None
-        self.chapter_content: Optional[str] = None
-        self.chapter_outline: Optional[str] = None
-        self.external_context: Optional[str] = None
-        self.current_state: Optional[str] = None
-        self.previous_chapter_summary: Optional[str] = None
-        self.error: Optional[str] = None
-        self.result: Optional[Dict[str, Any]] = None
+class WorkflowState(TypedDict, total=False):
+    book_id: Optional[int]
+    book_data: Optional[Dict[str, Any]]
+    chapter_num: Optional[int]
+    chapter_content: Optional[Any]
+    chapter_outline: Optional[str]
+    external_context: Optional[str]
+    current_state: Optional[str]
+    previous_chapter_summary: Optional[str]
+    error: Optional[str]
+    result: Optional[Dict[str, Any]]
+    chapter_plan: Optional[Any]
+    check_result: Optional[Dict[str, Any]]
+    consistency_result: Optional[Dict[str, Any]]
+    score_result: Optional[Dict[str, Any]]
 
 class NovelWriteWorkflow:
     def __init__(self):
@@ -91,7 +93,7 @@ class NovelWriteWorkflow:
                 }
             }
         
-        graph = StateGraph(Dict[str, Any])
+        graph = StateGraph(WorkflowState)
         graph.add_node('generate_foundation', generate_foundation)
         graph.set_entry_point('generate_foundation')
         graph.add_edge('generate_foundation', END)
@@ -390,7 +392,7 @@ class NovelWriteWorkflow:
             """处理错误"""
             return {'result': {'error': state['error']}}
         
-        graph = StateGraph(Dict[str, Any])
+        graph = StateGraph(WorkflowState)
         graph.add_node('plan_chapter', plan_chapter)
         graph.add_node('check_outline', check_outline)
         graph.add_node('write_chapter', write_chapter)
@@ -435,7 +437,7 @@ class NovelWriteWorkflow:
                 }
             }
         
-        graph = StateGraph(Dict[str, Any])
+        graph = StateGraph(WorkflowState)
         graph.add_node('update_outline', update_outline)
         graph.set_entry_point('update_outline')
         graph.add_edge('update_outline', END)
@@ -468,7 +470,7 @@ class NovelWriteWorkflow:
             """处理错误"""
             return {'result': {'error': state['error']}}
         
-        graph = StateGraph(Dict[str, Any])
+        graph = StateGraph(WorkflowState)
         graph.add_node('update_chapter_content', update_chapter_content)
         graph.add_node('handle_error', handle_error)
         
@@ -556,3 +558,128 @@ class NovelWriteWorkflow:
             'new_content': new_content
         })
         return result.get('result', {})
+
+    def export_workflow_diagram(self, workflow_type: str = 'continue_chapter', output_path: str = None):
+        """导出工作流图
+
+        Args:
+            workflow_type: 工作流类型 ('create_book', 'continue_chapter', 'update_outline', 'update_chapter')
+            output_path: 输出文件路径，默认为 None 则返回图片数据
+
+        Returns:
+            如果 output_path 为 None，返回 Mermaid 图表定义字符串
+        """
+        workflow_map = {
+            'create_book': self.create_book_workflow,
+            'continue_chapter': self.continue_chapter_workflow,
+            'update_outline': self.update_outline_workflow,
+            'update_chapter': self.update_chapter_workflow
+        }
+
+        if workflow_type not in workflow_map:
+            raise ValueError(f"不支持的工作流类型: {workflow_type}，可选: {list(workflow_map.keys())}")
+
+        workflow = workflow_map[workflow_type]
+
+        try:
+            img_data = workflow.get_graph().draw_mermaid_png()
+            if output_path:
+                with open(output_path, 'wb') as f:
+                    f.write(img_data)
+                return output_path
+            return img_data
+        except Exception as e:
+            workflow_mermaid = {
+                'create_book': '''graph TB
+    A([开始]) --> B[generate_foundation]
+    B --> C([结束])''',
+                'continue_chapter': '''graph TB
+    A([开始]) --> B[plan_chapter]
+    B --> C{check_outline}
+    C -->|失败| H[handle_error]
+    C -->|成功| D[write_chapter]
+    D --> E{check_consistency}
+    E -->|失败| H
+    E -->|成功| F[score_chapter]
+    F -->|失败| H
+    F -->|成功| G[update_book_state]
+    G --> I([结束])
+    H --> J([结束])''',
+                'update_outline': '''graph TB
+    A([开始]) --> B[update_outline]
+    B --> C([结束])''',
+                'update_chapter': '''graph TB
+    A([开始]) --> B[update_chapter]
+    B --> C([结束])'''
+            }
+            return workflow_mermaid.get(workflow_type, '')
+
+    def print_workflow_structure(self, workflow_type: str = 'continue_chapter'):
+        """打印工作流结构（文本形式）
+
+        Args:
+            workflow_type: 工作流类型
+        """
+        workflow_structures = {
+            'create_book': {
+                'name': '创建书籍',
+                'nodes': ['generate_foundation'],
+                'edges': ['generate_foundation -> END']
+            },
+            'continue_chapter': {
+                'name': '续写章节',
+                'nodes': ['plan_chapter', 'check_outline', 'write_chapter', 'check_consistency', 'score_chapter', 'update_book_state', 'handle_error'],
+                'edges': [
+                    'plan_chapter -> check_outline',
+                    'check_outline --[失败]--> handle_error',
+                    'check_outline --[成功]--> write_chapter',
+                    'write_chapter -> check_consistency',
+                    'check_consistency --[失败]--> handle_error',
+                    'check_consistency --[成功]--> score_chapter',
+                    'score_chapter --[失败]--> handle_error',
+                    'score_chapter --[成功]--> update_book_state',
+                    'update_book_state -> END',
+                    'handle_error -> END'
+                ]
+            },
+            'update_outline': {
+                'name': '修改大纲',
+                'nodes': ['update_outline'],
+                'edges': ['update_outline -> END']
+            },
+            'update_chapter': {
+                'name': '修改章节',
+                'nodes': ['update_chapter'],
+                'edges': ['update_chapter -> END']
+            }
+        }
+
+        if workflow_type not in workflow_structures:
+            print(f"不支持的工作流类型: {workflow_type}，可选: {list(workflow_structures.keys())}")
+            return
+
+        structure = workflow_structures[workflow_type]
+
+        print(f"\n{'='*60}")
+        print(f"工作流: {workflow_type} ({structure['name']})")
+        print('='*60)
+
+        print(f"\n节点 ({len(structure['nodes'])}):")
+        for i, node in enumerate(structure['nodes'], 1):
+            print(f"  {i}. {node}")
+
+        print("\n流程:")
+        for edge in structure['edges']:
+            print(f"  {edge}")
+
+        print("\n说明:")
+        if workflow_type == 'continue_chapter':
+            print("  1. plan_chapter: 规划章节内容")
+            print("  2. check_outline: 检查章节大纲是否合理")
+            print("  3. write_chapter: 写章节")
+            print("  4. check_consistency: 检查连续性（与前一章的衔接）")
+            print("  5. score_chapter: 评分章节")
+            print("  6. update_book_state: 更新书籍状态（当前状态、伏笔、支线等）")
+            print("  7. handle_error: 处理错误")
+
+        print('='*60 + "\n")
