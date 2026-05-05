@@ -6,7 +6,8 @@ import os
 # 获取数据库路径
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "novel_write.db")
 
-# 创建数据库引擎
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
 # 创建会话工厂

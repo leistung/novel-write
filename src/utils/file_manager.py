@@ -4,9 +4,10 @@ from typing import Dict, Any, Optional
 class FileManager:
     """文件管理工具类"""
 
-    def __init__(self, base_dir: str = "data"):
+    def __init__(self, base_dir: str = None):
+        if base_dir is None:
+            base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
         self.base_dir = base_dir
-        # 确保基础目录存在
         os.makedirs(base_dir, exist_ok=True)
 
     def get_book_dir(self, book_id: int) -> str:
@@ -83,3 +84,18 @@ class FileManager:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
         return file_path
+
+    def save_chapter_summary(self, book_id: int, summary: str) -> str:
+        """保存章节摘要"""
+        file_path = os.path.join(self.get_book_dir(book_id), "chapter_summaries.md")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(summary)
+        return file_path
+
+    def read_chapter_summary(self, book_id: int) -> str:
+        """读取章节摘要"""
+        file_path = os.path.join(self.get_book_dir(book_id), "chapter_summaries.md")
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return ""
