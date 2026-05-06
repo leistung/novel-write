@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 from src.agents.architect import ArchitectAgent
 from src.agents.writer import WriterAgent
-from src.agents.continuity import ContinuityAuditor as ConsistencyAgent
+from src.agents.continuity_auditor import ContinuityAuditor as ConsistencyAgent
 from src.agents.auditor import AuditorAgent as AuthorAgent
 from src.db.crud import create_book, get_book, update_book, create_chapter, get_chapter_by_number, update_chapter, delete_chapters_after
 from src.db.config import get_db
@@ -172,7 +172,7 @@ class NovelWriteWorkflow:
             
             self.log_manager.log_workflow('continue_chapter', f'开始检查章节大纲（第{writer_retry_count + 1}次尝试）', {'book_id': book_data['id'], 'chapter_num': chapter_num})
             
-            check_result = self.writer_agent.check_chapter_outline(chapter_plan.chapter_outline, book_data)
+            check_result = self.writer_agent.validate_chapter_outline(chapter_plan.chapter_outline, book_data)
             
             self.log_manager.log_agent('Writer', '检查章节大纲完成', {
                 'book_id': book_data['id'], 
@@ -289,16 +289,24 @@ class NovelWriteWorkflow:
             previous_chapter = get_chapter_by_number(db, book_data['id'], chapter_num - 1)
             previous_chapter_content = previous_chapter.content if previous_chapter else ""
             
-            consistency_result = self.consistency_agent.check_consistency(
-                chapter_content.content, previous_chapter_content, book_data
+            consistency_result = self.consistency_agent.check_chapter_consistency(
+                book_data, chapter_num, chapter_content.content, previous_chapter_content
             )
             
-            issues = consistency_result.get('issues', [])
+            issues = []
+            if consistency_result.plot_breaks:
+                issues.extend([{'type': 'plot', 'message': msg} for msg in consistency_result.plot_breaks])
+            if consistency_result.character_breaks:
+                issues.extend([{'type': 'character', 'message': msg} for msg in consistency_result.character_breaks])
+            if consistency_result.setting_breaks:
+                issues.extend([{'type': 'setting', 'message': msg} for msg in consistency_result.setting_breaks])
+
             issue_messages = [issue.get('message', '') for issue in issues[:3]]
             self.log_manager.log_agent('Consistency', '检查连续性完成', {
-                'book_id': book_data['id'], 
-                'chapter_num': chapter_num, 
+                'book_id': book_data['id'],
+                'chapter_num': chapter_num,
                 'issue_count': len(issues),
+                'score': consistency_result.score,
                 'issues': issue_messages
             })
             
@@ -341,8 +349,7 @@ class NovelWriteWorkflow:
                 'writer_feedback': '',
                 'consistency_passed': True,
                 'score_passed': False
-            }
-        
+            }        
         def score_chapter(state: Dict[str, Any]) -> Dict[str, Any]:
             """评分章节 (Author)"""
             book_data = state['book_data']
@@ -352,11 +359,11 @@ class NovelWriteWorkflow:
             
             self.log_manager.log_workflow('continue_chapter', '开始评分章节', {'book_id': book_data['id'], 'chapter_num': chapter_num})
             
-            score_result = self.author_agent.score_chapter(chapter_content.content, book_data)
+            score_result = self.author_agent.score_chapter(book_data, chapter_num, chapter_content.content, "")
             
-            suggestions = score_result.get('suggestions', [])
-            feedback = '; '.join(suggestions) if suggestions else ''
-            score = score_result.get('score', 0)
+            suggestions = score_result.suggestions
+            feedback = suggestions if suggestions else ''
+            score = score_result.score
             
             self.log_manager.log_agent('Author', '评分章节完成', {
                 'book_id': book_data['id'], 
@@ -819,3 +826,4 @@ class NovelWriteWorkflow:
             print("  7. handle_error: 处理错误")
 
         print('='*60 + "\n")
+

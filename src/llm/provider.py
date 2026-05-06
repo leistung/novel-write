@@ -1,32 +1,47 @@
+"""LLM 客户端配置"""
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import Tool
 import os
 from pydantic_settings import BaseSettings
+import httpx
 
 class LLMConfig(BaseSettings):
     provider: str = "openai"
     base_url: str = "https://api-inference.modelscope.cn/v1/"
-    api_key: str = "xxx"
+    api_key: str = ""  # 设为空，强制用户配置
     model: str = "Qwen/Qwen3.5-35B-A3B"
     temperature: float = 0.7
     max_tokens: int = 8192
+    timeout: int = 60  # 添加超时设置
 
     class Config:
         env_file = ".env"
-        env_prefix = "inkos_llm_"
+        env_prefix = "llm_"
         case_sensitive = False
 
 class LLMClient:
     def __init__(self, config: LLMConfig):
         self.config = config
+        
+        # 验证API key
+        if not config.api_key or config.api_key == "xxx":
+            raise ValueError("请在 .env 文件中配置正确的 API_KEY")
+        
+        # 创建自定义HTTP客户端，设置超时
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(config.timeout, connect=10),
+            limits=httpx.Limits(max_connections=10)
+        )
+        
         self.client = ChatOpenAI(
             model=config.model,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             base_url=config.base_url,
-            api_key=config.api_key
+            api_key=config.api_key,
+            http_client=http_client  # 使用自定义客户端
         )
 
     def chat_completion(self, messages, tools=None):

@@ -8,9 +8,7 @@ check_consistency_prompt = """
 - 标题：{title}
 - 题材：{genre}
 
-章节内容：{chapter_content}
-
-前章内容：{previous_chapter_content}
+{genre_enhancement}
 
 请检查以下方面：
 1. 角色记忆和行为一致性
@@ -26,6 +24,13 @@ check_consistency_prompt = """
 2. 发现的问题及严重程度
 3. 改进建议
 4. 是否通过审计（评分>=70为通过）
+
+输出格式：
+分数：（0-100的数字）
+## 检查报告
+（详细检查报告）
+## 建议
+（改进建议）
         """
 
 # 连续性检查提示词字典（保持向后兼容）

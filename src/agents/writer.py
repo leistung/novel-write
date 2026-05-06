@@ -1,11 +1,18 @@
+"""WriterAgent - 写手 Agent，负责章节内容创作"""
 from typing import Dict, Any, Optional, List
 from src.agents.base import BaseAgent, AgentContext
 from src.prompts import WRITER_PROMPTS
 import os
 import re
+import logging
 
 class WriteChapterInput:
-    def __init__(self, book: Dict[str, Any], chapter_number: int, chapter_plan: Dict[str, Any], external_context: Optional[str] = None, word_count_override: Optional[int] = None, temperature_override: Optional[float] = None, book_dir: Optional[str] = None):
+    """写章节输入参数"""
+    def __init__(self, book: Dict[str, Any], chapter_number: int, 
+                 chapter_plan: Dict[str, Any], external_context: Optional[str] = None, 
+                 word_count_override: Optional[int] = None, 
+                 temperature_override: Optional[float] = None, 
+                 book_dir: Optional[str] = None):
         self.book = book
         self.chapter_number = chapter_number
         self.chapter_plan = chapter_plan
@@ -15,13 +22,22 @@ class WriteChapterInput:
         self.book_dir = book_dir
 
 class TokenUsage:
+    """Token 使用统计"""
     def __init__(self, prompt_tokens: int, completion_tokens: int, total_tokens: int):
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.total_tokens = total_tokens
 
 class WriteChapterOutput:
-    def __init__(self, chapter_number: int, title: str, content: str, word_count: int, pre_write_check: str, post_settlement: str, updated_state: str, updated_ledger: str, updated_hooks: str, chapter_summary: str, updated_subplots: str, updated_emotional_arcs: str, updated_character_matrix: str, post_write_errors: List[Dict[str, Any]], post_write_warnings: List[Dict[str, Any]], token_usage: Optional[TokenUsage] = None):
+    """写章节输出结果"""
+    def __init__(self, chapter_number: int, title: str, content: str, 
+                 word_count: int, pre_write_check: str, post_settlement: str, 
+                 updated_state: str, updated_ledger: str, updated_hooks: str, 
+                 chapter_summary: str, updated_subplots: str, 
+                 updated_emotional_arcs: str, updated_character_matrix: str,
+                 post_write_errors: List[Dict[str, Any]], 
+                 post_write_warnings: List[Dict[str, Any]], 
+                 token_usage: Optional[TokenUsage] = None):
         self.chapter_number = chapter_number
         self.title = title
         self.content = content
@@ -40,59 +56,77 @@ class WriteChapterOutput:
         self.token_usage = token_usage
 
 class WriterAgent(BaseAgent):
+    """写手 Agent - 负责章节内容创作、大纲检查和状态结算"""
+    
     def __init__(self, llm):
         super().__init__(llm)
-        import logging
         self.logger = logging.getLogger('writer_agent')
         self.logger.setLevel(logging.DEBUG)
         
-        # 添加控制台handler
+        # 添加控制台 handler（避免重复添加）
         if not self.logger.handlers:
             console_handler = logging.StreamHandler()
             console_handler.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
-
-    def check_chapter_outline(self, chapter_outline: str, book_data: Dict[str, Any]) -> Dict[str, Any]:
-        """检查章节大纲是否合理"""
+    
+    def validate_chapter_outline(self, chapter_outline: str, book_data: Dict[str, Any]) -> Dict[str, Any]:
+        """验证章节大纲是否合理
+        
+        Args:
+            chapter_outline: 章节大纲内容
+            book_data: 书籍信息字典
+        
+        Returns:
+            Dict[str, Any]: 包含 is_valid 和 suggestions 的验证结果
+        """
         genre = book_data.get('genre', '未知')
         title = book_data.get('title', '未知')
         
-        # 创建提示词
+        # 获取题材技能增强
+        genre_enhancement = self.get_genre_enhancement(genre)
+
+        # 构建系统提示
         system_prompt = WRITER_PROMPTS["check_chapter_outline"].format(
             genre=genre,
             title=title,
-            chapter_outline=chapter_outline
+            chapter_outline=chapter_outline,
+            genre_enhancement=genre_enhancement if genre_enhancement else ""
         )
-        
-        # 创建提示
+
+        # 创建提示词
         prompt = self.create_prompt(system_prompt, "请评估上述章节大纲的合理性，并提供修改建议。")
-        
+
         # 运行链
         response = self.run_chain(prompt)
         content = response['content']
-        token_usage = response['token_usage']
-        
+
         # 解析结果
-        # 这里简化处理，实际应该根据LLM的输出格式进行解析
         is_valid = "合理" in content or "可行" in content
         suggestions = content
-        
+
         return {
             'is_valid': is_valid,
             'suggestions': suggestions
         }
-
-    def write_chapter(self, input: WriteChapterInput) -> WriteChapterOutput:
-        """生成章节内容"""
-        book = input.book
-        chapter_number = input.chapter_number
-        chapter_plan = input.chapter_plan
-        external_context = input.external_context
-        word_count_override = input.word_count_override
-        temperature_override = input.temperature_override
-        book_dir = input.book_dir
+    
+    def write_chapter(self, input_data: WriteChapterInput) -> WriteChapterOutput:
+        """生成章节内容
+        
+        Args:
+            input_data: 写章节输入参数对象
+        
+        Returns:
+            WriteChapterOutput: 写章节输出结果对象
+        """
+        book = input_data.book
+        chapter_number = input_data.chapter_number
+        chapter_plan = input_data.chapter_plan
+        external_context = input_data.external_context
+        word_count_override = input_data.word_count_override
+        temperature_override = input_data.temperature_override
+        book_dir = input_data.book_dir
 
         # 加载相关文件
         story_bible = self._read_file(book_dir, "story_bible.md") if book_dir else "(故事圣经尚未创建)"
@@ -110,10 +144,14 @@ class WriterAgent(BaseAgent):
         genre_profile = self._get_genre_profile(genre)
         book_rules = self._get_book_rules(book)
 
+        # 获取题材技能增强
+        genre_enhancement = self.get_genre_enhancement(genre)
+
         # 第一阶段：创意写作
         resolved_language = book.get('language', 'zh') or genre_profile.get('language', 'zh')
         creative_system_prompt = self._build_writer_system_prompt(
-            book, genre_profile, book_rules, chapter_number, resolved_language
+            book, genre_profile, book_rules, chapter_number, 
+            resolved_language, genre_enhancement
         )
 
         # 构建用户提示
@@ -156,9 +194,8 @@ class WriterAgent(BaseAgent):
         self.logger.info("=" * 80 + "\n")
 
         # 运行链
-        creative_response = self.run_chain(prompt)
+        creative_response = self.run_chain(prompt, temperature=creative_temperature)
         content = creative_response['content']
-        token_usage = creative_response['token_usage']
 
         # 打印LLM返回的原始内容用于调试
         self.logger.info("\n" + "=" * 80)
@@ -185,7 +222,8 @@ class WriterAgent(BaseAgent):
             'subplot_board': subplot_board,
             'emotional_arcs': emotional_arcs,
             'character_matrix': character_matrix,
-            'volume_outline': volume_outline
+            'volume_outline': volume_outline,
+            'genre_enhancement': genre_enhancement
         })
 
         settlement = settle_result['settlement']
@@ -212,13 +250,11 @@ class WriterAgent(BaseAgent):
             updated_emotional_arcs=settlement['updated_emotional_arcs'],
             updated_character_matrix=settlement['updated_character_matrix'],
             post_write_errors=post_write_errors,
-            post_write_warnings=post_write_warnings,
-            token_usage=token_usage  # 从 LLM 响应中提取
+            post_write_warnings=post_write_warnings
         )
-
+    
     def _get_genre_profile(self, genre: str) -> Dict[str, Any]:
         """获取题材配置"""
-        # 这里简化处理，实际应该从文件读取
         return {
             'name': genre,
             'language': 'zh',
@@ -226,10 +262,9 @@ class WriterAgent(BaseAgent):
             'powerScaling': genre in ['玄幻', '仙侠', '都市', '科幻'],
             'eraResearch': genre in ['历史', '仙侠', '玄幻']
         }
-
+    
     def _get_book_rules(self, book: Dict[str, Any]) -> Dict[str, Any]:
         """获取书籍规则"""
-        # 这里简化处理，实际应该从文件读取
         return {
             'protagonist': {
                 'name': '主角',
@@ -242,15 +277,20 @@ class WriterAgent(BaseAgent):
             },
             'prohibitions': ['禁止血腥暴力', '禁止宣扬迷信', '禁止违背社会主义核心价值观']
         }
-
-    def _build_writer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], book_rules: Dict[str, Any], chapter_number: int, language: str) -> str:
+    
+    def _build_writer_system_prompt(self, book: Dict[str, Any], 
+                                   genre_profile: Dict[str, Any], 
+                                   book_rules: Dict[str, Any], 
+                                   chapter_number: int, 
+                                   language: str,
+                                   genre_enhancement: str) -> str:
         """构建作家系统提示"""
         genre = book.get('genre', '未知')
         platform = book.get('platform', '其他')
         chapter_word_count = book.get('chapter_words', 3000)
         writing_style = book.get('writing_style', '')
         
-        writing_style_block = f"\n\n## 作者文笔参考\n以下是用户提供的作者文笔参考，请在写作中体现相应的风格：\n\n{writing_style}\n" if writing_style else ""
+        writing_style_block = f"\n\n## 作者文笔参考\n{writing_style}\n" if writing_style else ""
         
         # 计算最小字数要求
         min_word_count = int(chapter_word_count * 0.9)
@@ -260,41 +300,10 @@ class WriterAgent(BaseAgent):
             platform=platform,
             chapter_word_count=chapter_word_count,
             min_word_count=min_word_count,
-            writing_style_block=writing_style_block
+            writing_style_block=writing_style_block,
+            genre_enhancement=genre_enhancement if genre_enhancement else ""
         )
-
-    def _filter_hooks(self, hooks: str) -> str:
-        """过滤伏笔"""
-        return hooks
-
-    def _filter_summaries(self, chapter_summaries: str, chapter_number: int) -> str:
-        """过滤摘要"""
-        return chapter_summaries
-
-    def _filter_subplots(self, subplot_board: str) -> str:
-        """过滤支线"""
-        return subplot_board
-
-    def _filter_emotional_arcs(self, emotional_arcs: str, chapter_number: int) -> str:
-        """过滤情感弧线"""
-        return emotional_arcs
-
-    def _filter_character_matrix(self, character_matrix: str, volume_outline: str, protagonist_name: Optional[str]) -> str:
-        """过滤角色矩阵"""
-        return character_matrix
-
-    def _extract_pov_from_outline(self, volume_outline: str, chapter_number: int) -> Optional[str]:
-        """从卷纲中提取 POV 角色"""
-        return None
-
-    def _filter_matrix_by_pov(self, matrix: str, pov_character: str) -> str:
-        """根据 POV 过滤角色矩阵"""
-        return matrix
-
-    def _filter_hooks_by_pov(self, hooks: str, pov_character: str, chapter_summaries: str) -> str:
-        """根据 POV 过滤伏笔"""
-        return hooks
-
+    
     def _build_user_prompt(self, params: Dict[str, Any]) -> str:
         """构建用户提示"""
         chapter_number = params['chapter_number']
@@ -312,9 +321,9 @@ class WriterAgent(BaseAgent):
         character_matrix = params['character_matrix']
         language = params['language']
 
-        context_block = f"\n## 外部指令\n以下是来自外部系统的创作指令，请在本章中融入：\n\n{external_context}\n" if external_context else ""
+        context_block = f"\n## 外部指令\n{external_context}\n" if external_context else ""
         ledger_block = f"\n## 资源账本\n{ledger}\n" if ledger else ""
-        summaries_block = f"\n## 章节摘要（全部历史章节压缩上下文）\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
+        summaries_block = f"\n## 章节摘要\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
         subplot_block = f"\n## 支线进度板\n{subplot_board}\n" if subplot_board != "(支线进度板尚未创建)" else ""
         emotional_block = f"\n## 情感弧线\n{emotional_arcs}\n" if emotional_arcs != "(情感弧线尚未创建)" else ""
         matrix_block = f"\n## 角色交互矩阵\n{character_matrix}\n" if character_matrix != "(角色交互矩阵尚未创建)" else ""
@@ -347,14 +356,8 @@ class WriterAgent(BaseAgent):
 ## Worldbuilding
 {story_bible}
 
-## Volume Outline (Hard Constraint — Must Follow)
+## Volume Outline (Hard Constraint)
 {volume_outline}
-
-[Outline Rules]
-- This chapter must advance the plot points assigned to it in the volume outline. Do not skip ahead or consume future plot points.
-- If the outline specifies an event for chapter N, do not resolve it early.
-- Pacing must match the outline's chapter span: if 5 chapters are planned for an arc, do not compress into 1-2.
-- PRE_WRITE_CHECK must identify which outline node this chapter covers.
 
 Requirements:
 - Chapter body must be at least {word_count} words
@@ -374,31 +377,17 @@ Requirements:
 ## 世界观设定
 {story_bible}
 
-## 卷纲（硬约束——必须遵守）
+## 卷纲（硬约束）
 {volume_outline}
 
-【卷纲遵守规则】
-- 本章内容必须对应卷纲中当前章节范围内的剧情节点，严禁跳过或提前消耗后续节点
-- 如果卷纲指定了某个事件/转折发生在第N章，不得提前到本章完成
-- 剧情推进速度必须与卷纲规划的章节跨度匹配：如果卷纲规划某段剧情跨5章，不得在1-2章内讲完
-- PRE_WRITE_CHECK中必须明确标注本章对应的卷纲节点
-
 要求：
-- 正文严格控制在{word_count}字左右，误差不超过10%，绝对不能少于{int(word_count * 0.9)}字
+- 正文严格控制在{word_count}字左右，误差不超过10%
 - 先输出写作自检表，再写正文
-- 只需输出 PRE_WRITE_CHECK、CHAPTER_TITLE、CHAPTER_CONTENT 三个区块
-
-重要提示：
-- 请确保章节内容充实，达到要求的字数
-- 可以通过增加场景描写、人物对话、心理活动等方式来增加字数
-- 不要添加与剧情无关的内容，确保情节紧凑
-- 字数不足将无法通过审核，需要重写
-"""
-
-    def _parse_creative_output(self, chapter_number: int, content: str, target_words: int = 3000) -> Dict[str, Any]:
+- 只需输出 PRE_WRITE_CHECK、CHAPTER_TITLE、CHAPTER_CONTENT 三个区块"""
+    
+    def _parse_creative_output(self, chapter_number: int, content: str, 
+                              target_words: int = 3000) -> Dict[str, Any]:
         """解析创意输出"""
-        import re
-
         title = f"第{chapter_number}章"
         chapter_content = content
 
@@ -412,17 +401,15 @@ Requirements:
             chapter_content = content_match.group(1).strip()
 
         word_count = len(chapter_content)
-        
-        standard_word_count = target_words
-        min_word_count = standard_word_count * 0.9
+        min_word_count = int(target_words * 0.9)
         
         if word_count < min_word_count:
             return {
                 'title': title,
                 'content': chapter_content,
                 'word_count': word_count,
-                'pre_write_check': f"写作自检表：本章字数不足，要求{standard_word_count}字，实际{word_count}字，请重写",
-                'error': f"字数不足，要求{standard_word_count}字，实际{word_count}字"
+                'pre_write_check': f"写作自检表：本章字数不足，要求{target_words}字，实际{word_count}字",
+                'error': f"字数不足"
             }
         else:
             return {
@@ -431,7 +418,7 @@ Requirements:
                 'word_count': word_count,
                 'pre_write_check': f"写作自检表：本章符合卷纲要求，字数{word_count}字"
             }
-
+    
     def _settle(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """状态结算 - 分为Observer和Reflector两个阶段"""
         book = params['book']
@@ -447,6 +434,7 @@ Requirements:
         emotional_arcs = params['emotional_arcs']
         character_matrix = params['character_matrix']
         volume_outline = params['volume_outline']
+        genre_enhancement = params.get('genre_enhancement', '')
         
         resolved_language = book.get('language', 'zh') or genre_profile.get('language', 'zh')
         
@@ -462,7 +450,7 @@ Requirements:
         observations = observer_response['content']
         
         # 第二阶段：Reflector - 将观察结果合并到状态文件中
-        settler_system = self._build_settler_system_prompt(book, genre_profile, resolved_language)
+        settler_system = self._build_settler_system_prompt(book, genre_profile, resolved_language, genre_enhancement)
         settler_user = self._build_settler_user_prompt(
             chapter_number, title, content, current_state, ledger, hooks,
             chapter_summaries, subplot_board, emotional_arcs, character_matrix,
@@ -480,33 +468,27 @@ Requirements:
             'settlement': self._parse_settlement_output(settler_response['content'], genre_profile)
         }
     
-    def _build_observer_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], language: str) -> str:
+    def _build_observer_system_prompt(self, book: Dict[str, Any], 
+                                     genre_profile: Dict[str, Any], 
+                                     language: str) -> str:
         """构建Observer系统提示"""
         is_english = language == "en"
         lang_prefix = "【LANGUAGE OVERRIDE】ALL output MUST be in English.\n\n" if is_english else ""
         
         return f"""{lang_prefix}{WRITER_PROMPTS['observer']}"""
-
-    def _build_observer_user_prompt(self, chapter_number: int, title: str, content: str, language: str) -> str:
+    
+    def _build_observer_user_prompt(self, chapter_number: int, title: str, 
+                                   content: str, language: str) -> str:
         """构建Observer用户提示"""
         if language == "en":
-            return f"""Please extract all factual changes from Chapter {chapter_number}: "{title}"
-
-## Chapter Content
-
-{content}
-
-Please extract all factual changes according to the format specified in the system prompt."""
+            return f"""Please extract all factual changes from Chapter {chapter_number}: "{title}"\n\n{content}"""
         else:
-            return f"""请从第{chapter_number}章「{title}」中提取所有事实性变化。
-
-## 章节正文
-
-{content}
-
-请按照系统提示中指定的格式输出观察结果。"""
-
-    def _build_settler_system_prompt(self, book: Dict[str, Any], genre_profile: Dict[str, Any], language: str) -> str:
+            return f"""请从第{chapter_number}章「{title}」中提取所有事实性变化。\n\n{content}"""
+    
+    def _build_settler_system_prompt(self, book: Dict[str, Any], 
+                                    genre_profile: Dict[str, Any], 
+                                    language: str,
+                                    genre_enhancement: str) -> str:
         """构建Settler系统提示"""
         is_english = language == "en"
         lang_prefix = "【LANGUAGE OVERRIDE】ALL output MUST be in English.\n\n" if is_english else ""
@@ -516,22 +498,12 @@ Please extract all factual changes according to the format specified in the syst
         numerical_block = ""
         
         if genre_profile.get('numericalSystem'):
-            numerical_block = """
-- 本题材有数值/资源体系，你必须在 UPDATED_LEDGER 中追踪正文中出现的所有资源变动
-- 数值验算铁律：期初 + 增量 = 期末，三项必须可验算"""
+            numerical_block = "\n- 本题材有数值/资源体系，必须追踪资源变动"
         else:
-            numerical_block = """
-- 本题材无数值系统，UPDATED_LEDGER 留空"""
+            numerical_block = "\n- 本题材无数值系统"
 
-        hook_rules = """
-## 伏笔追踪规则
+        hook_rules = """\n## 伏笔追踪规则\n- 新伏笔：新增 hook_id，标注起始章\n- 推进伏笔：更新状态\n- 回收伏笔：状态改为已回收"""
 
-- 新伏笔：正文中出现的暗示、悬念、未解之谜 → 新增 hook_id，标注起始章、类型、状态=待定
-- 推进伏笔：已有伏笔在本章有新进展 → 更新"最近推进"列和状态
-- 回收伏笔：伏笔在本章明确揭示/解决 → 状态改为"已回收"
-- 延后伏笔：超过5章未推进 → 标注"延后"，备注原因"""
-
-        # 计算需要的参数
         book_title = book.get('title', '未知')
         genre_name = genre_profile.get('name', genre)
         
@@ -541,14 +513,15 @@ Please extract all factual changes according to the format specified in the syst
             genre=genre,
             platform=platform,
             numerical_block=numerical_block,
-            hook_rules=hook_rules
+            hook_rules=hook_rules,
+            genre_enhancement=genre_enhancement if genre_enhancement else ""
         )}"""
-
+    
     def _build_settler_user_prompt(self, chapter_number: int, title: str, content: str,
-                                    current_state: str, ledger: str, hooks: str,
-                                    chapter_summaries: str, subplot_board: str,
-                                    emotional_arcs: str, character_matrix: str,
-                                    volume_outline: str, observations: str) -> str:
+                                   current_state: str, ledger: str, hooks: str,
+                                   chapter_summaries: str, subplot_board: str,
+                                   emotional_arcs: str, character_matrix: str,
+                                   volume_outline: str, observations: str) -> str:
         """构建Settler用户提示"""
         ledger_block = f"\n## 当前资源账本\n{ledger}\n" if ledger else ""
         summaries_block = f"\n## 已有章节摘要\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
@@ -556,32 +529,10 @@ Please extract all factual changes according to the format specified in the syst
         emotional_block = f"\n## 当前情感弧线\n{emotional_arcs}\n" if emotional_arcs != "(情感弧线尚未创建)" else ""
         matrix_block = f"\n## 当前角色交互矩阵\n{character_matrix}\n" if character_matrix != "(角色交互矩阵尚未创建)" else ""
         
-        return f"""请分析第{chapter_number}章「{title}」的正文，更新所有追踪文件。
-
-## 观察日志（由 Observer 提取，包含本章所有事实变化）
-{observations}
-
-基于以上观察日志和正文，更新所有追踪文件。确保观察日志中的每一项变化都反映在对应的文件中。
-
-## 本章正文
-
-{content}
-
-## 当前状态卡
-{current_state}
-{ledger_block}
-## 当前伏笔池
-{hooks}
-{summaries_block}{subplot_block}{emotional_block}{matrix_block}
-## 卷纲
-{volume_outline}
-
-请严格按照 === TAG === 格式输出结算结果。"""
-
+        return f"""请分析第{chapter_number}章「{title}」的正文，更新所有追踪文件。\n\n## 观察日志\n{observations}\n\n## 本章正文\n{content}\n\n## 当前状态卡\n{current_state}{ledger_block}## 当前伏笔池\n{hooks}{summaries_block}{subplot_block}{emotional_block}{matrix_block}## 卷纲\n{volume_outline}\n\n请按照 === TAG === 格式输出结算结果。"""
+    
     def _parse_settlement_output(self, content: str, genre_profile: Dict[str, Any]) -> Dict[str, Any]:
         """解析结算输出"""
-        import re
-        
         def extract_block(tag: str) -> str:
             pattern = rf'=== {tag} ===\s*(.*?)(?==== |$)'
             match = re.search(pattern, content, re.DOTALL)
@@ -597,11 +548,11 @@ Please extract all factual changes according to the format specified in the syst
             'updated_emotional_arcs': extract_block('UPDATED_EMOTIONAL_ARCS'),
             'updated_character_matrix': extract_block('UPDATED_CHARACTER_MATRIX')
         }
-
+    
     def _read_file(self, book_dir: str, filename: str) -> str:
         """读取文件内容"""
         if not book_dir:
-            return f"({filename.replace('.md', '').replace('.json', '').replace('_', ' ')}尚未创建)"
+            return f"({filename.replace('.md', '').replace('_', ' ')}尚未创建)"
         
         file_path = os.path.join(book_dir, filename)
         if os.path.exists(file_path):
@@ -609,49 +560,65 @@ Please extract all factual changes according to the format specified in the syst
                 with open(file_path, 'r', encoding='utf-8') as f:
                     return f.read()
             except Exception:
-                return f"({filename.replace('.md', '').replace('.json', '').replace('_', ' ')}读取失败)"
-        return f"({filename.replace('.md', '').replace('.json', '').replace('_', ' ')}尚未创建)"
-
-    def _validate_post_write(self, content: str, genre_profile: Dict[str, Any], book_rules: Dict[str, Any]) -> List[Dict[str, Any]]:
+                return f"({filename.replace('.md', '').replace('_', ' ')}读取失败)"
+        return f"({filename.replace('.md', '').replace('_', ' ')}尚未创建)"
+    
+    def _validate_post_write(self, content: str, genre_profile: Dict[str, Any], 
+                           book_rules: Dict[str, Any]) -> List[Dict[str, Any]]:
         """写后验证"""
-        # 这里简化处理，实际应该根据 TypeScript 项目的逻辑实现
         return []
-
-
-
-    def run(self, context: AgentContext) -> Dict[str, Any]:
-        """运行作家 Agent"""
-        book = context.kwargs.get('book', {})
-        chapter_number = context.chapter_num
-        chapter_plan = context.kwargs.get('chapter_plan', {})
-        external_context = context.kwargs.get('external_context', None)
-        word_count_override = context.kwargs.get('word_count_override', None)
-        temperature_override = context.kwargs.get('temperature_override', None)
-        book_dir = context.kwargs.get('book_dir', None)
-
-        input = WriteChapterInput(
-            book=book,
-            chapter_number=chapter_number,
-            chapter_plan=chapter_plan,
-            external_context=external_context,
-            word_count_override=word_count_override,
-            temperature_override=temperature_override,
-            book_dir=book_dir
-        )
-
-        output = self.write_chapter(input)
-
-        return {
-            'content': output.content,
-            'word_count': output.word_count,
-            'summary': output.chapter_summary,
-            'title': output.title,
-            'audit_score': 0.85,  # 模拟审计分数
-            'revisions': 0,
-            'updated_state': output.updated_state,
-            'updated_hooks': output.updated_hooks,
-            'updated_ledger': output.updated_ledger,
-            'updated_subplots': output.updated_subplots,
-            'updated_emotional_arcs': output.updated_emotional_arcs,
-            'updated_character_matrix': output.updated_character_matrix
-        }
+    
+    def execute(self, context: AgentContext) -> Dict[str, Any]:
+        """执行 Agent 核心逻辑
+        
+        Args:
+            context: 执行上下文
+        
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        task_type = context.get('task_type', 'write_chapter')
+        
+        if task_type == 'validate_outline':
+            chapter_outline = context.get('chapter_outline', '')
+            book_data = context.get('book', {})
+            return self.validate_chapter_outline(chapter_outline, book_data)
+        
+        elif task_type == 'write_chapter':
+            book = context.get('book', {})
+            chapter_number = context.chapter_num or 1
+            chapter_plan = context.get('chapter_plan', {})
+            external_context = context.get('external_context')
+            word_count_override = context.get('word_count_override')
+            temperature_override = context.get('temperature_override')
+            book_dir = context.get('book_dir')
+            
+            input_data = WriteChapterInput(
+                book=book,
+                chapter_number=chapter_number,
+                chapter_plan=chapter_plan,
+                external_context=external_context,
+                word_count_override=word_count_override,
+                temperature_override=temperature_override,
+                book_dir=book_dir
+            )
+            
+            output = self.write_chapter(input_data)
+            
+            return {
+                'content': output.content,
+                'word_count': output.word_count,
+                'summary': output.chapter_summary,
+                'title': output.title,
+                'updated_state': output.updated_state,
+                'updated_hooks': output.updated_hooks,
+                'updated_ledger': output.updated_ledger,
+                'updated_subplots': output.updated_subplots,
+                'updated_emotional_arcs': output.updated_emotional_arcs,
+                'updated_character_matrix': output.updated_character_matrix,
+                'errors': output.post_write_errors,
+                'warnings': output.post_write_warnings
+            }
+        
+        else:
+            raise ValueError(f"未知任务类型: {task_type}")
