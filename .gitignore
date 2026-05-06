@@ -1,8 +1,54 @@
-__pycache__/
+# Python虚拟环境
 .venv/
-.data/
-.log/
+env/
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 环境变量配置
 .env
-.git
-.idea
-novel-write.db
+.env.local
+
+# 日志文件
+logs/
+*.log
+
+# 数据目录（存储书籍内容和章节）
+data/
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Streamlit缓存
+.streamlit/cache/
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
+
+# 测试输出
+test_output/
+coverage.xml
+.coverage
+
+# 构建产物
+dist/
+build/
+*.egg-info/
