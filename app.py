@@ -504,12 +504,14 @@ elif st.session_state.page == "workflow_diagram":
 
     workflow_type = st.selectbox(
         "选择工作流",
-        options=['continue_chapter', 'create_book', 'update_outline', 'update_chapter'],
+        options=['continue_chapter', 'create_book', 'update_outline', 'update_chapter', 'rewrite_from_chapter', 'audit_book'],
         format_func=lambda x: {
             'continue_chapter': '续写章节',
             'create_book': '创建书籍',
             'update_outline': '修改大纲',
-            'update_chapter': '修改章节'
+            'update_chapter': '修改章节',
+            'rewrite_from_chapter': '从指定章节重写',
+            'audit_book': '整书评估'
         }[x],
         index=0
     )

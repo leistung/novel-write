@@ -14,6 +14,7 @@ class ContinueChapterWorkflow(BaseWorkflow):
             book_id = state['book_id']
             chapter_num = state['chapter_num']
             external_context = state.get('external_context', '')
+            revision_feedback = state.get('writer_feedback', '')
             architect_feedback = state.get('architect_feedback', '')
             architect_retry_count = state.get('architect_retry_count', 0)
 
@@ -129,6 +130,7 @@ class ContinueChapterWorkflow(BaseWorkflow):
             chapter_plan = state['chapter_plan']
             current_state = state['current_state']
             external_context = state.get('external_context', '')
+            revision_feedback = state.get('writer_feedback', '')
 
             self.log_manager.log_workflow('continue_chapter', '开始写章节', {
                 'book_id': book_data['id'], 'chapter_num': chapter_num
@@ -150,7 +152,8 @@ class ContinueChapterWorkflow(BaseWorkflow):
                 chapter_plan=chapter_plan_dict,
                 external_context=external_context,
                 word_count_override=book_data['chapter_words'],
-                book_dir=book_dir
+                book_dir=book_dir,
+                revision_feedback=revision_feedback
             )
             chapter_content = self.writer_agent.write_chapter(input_data)
 
@@ -162,8 +165,6 @@ class ContinueChapterWorkflow(BaseWorkflow):
                 'title': chapter_content.title,
                 'token_usage': token_usage_info
             })
-
-            self.file_manager.save_chapter_content(book_data['id'], chapter_num, chapter_content.content)
 
             return {
                 'chapter_content': chapter_content,
@@ -214,7 +215,9 @@ class ContinueChapterWorkflow(BaseWorkflow):
                 'issues': issue_messages
             })
 
-            if issues:
+            if issues or not consistency_result.is_consistent or consistency_result.score < 80:
+                if not issue_messages:
+                    issue_messages = [consistency_result.suggestions or consistency_result.consistency_report or f"连续性评分过低：{consistency_result.score}"]
                 new_retry_count = state.get('writer_retry_count', 0) + 1
                 if new_retry_count >= 3:
                     return {'error': f"连续性问题连续3次无法解决，终止: {issue_messages}"}
@@ -265,7 +268,9 @@ class ContinueChapterWorkflow(BaseWorkflow):
                 'book_id': book_data['id'], 'chapter_num': chapter_num
             })
 
-            score_result = self.author_agent.score_chapter(book_data, chapter_num, chapter_content.content, "")
+            book_dir = self.file_manager.get_book_dir(book_data['id'])
+            chapter_summary = getattr(chapter_content, 'chapter_summary', '')
+            score_result = self.author_agent.score_chapter(book_data, chapter_num, chapter_content.content, chapter_summary, book_dir)
 
             suggestions = score_result.suggestions
             feedback = suggestions if suggestions else ''
@@ -380,6 +385,7 @@ class ContinueChapterWorkflow(BaseWorkflow):
             })
 
             self.file_manager.save_current_state(book_id, final_updated_state)
+            self.file_manager.save_chapter_content(book_id, chapter_num, chapter_content.content)
             self.file_manager.save_pending_hooks(book_id, final_updated_hooks)
             self.file_manager.save_subplot_board(book_id, final_updated_subplots)
             self.file_manager.save_emotional_arcs(book_id, final_updated_emotional_arcs)
@@ -409,9 +415,9 @@ class ContinueChapterWorkflow(BaseWorkflow):
             architect_retry_count = state.get('architect_retry_count', 0)
             writer_retry_count = state.get('writer_retry_count', 0)
 
-            if architect_retry_count > 0 or state.get('architect_feedback', ''):
+            if state.get('architect_feedback', ''):
                 return 'plan_chapter'
-            elif writer_retry_count > 0 or state.get('writer_feedback', ''):
+            elif state.get('writer_feedback', ''):
                 return 'write_chapter'
 
             if consistency_passed and score_passed:

@@ -6,6 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 import time
 import logging
 from src.skills.loader import get_skill_loader, SkillLoader
+from src.agents.contracts import AgentRunResult
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,29 @@ class BaseAgent(ABC):
             str: 提示词增强内容
         """
         return self.skill_loader.generate_prompt_enhancement(genre)
+
+    def result(
+        self,
+        task: str,
+        data: Dict[str, Any] = None,
+        *,
+        ok: bool = True,
+        score: float = None,
+        feedback: str = "",
+        errors: list = None,
+        warnings: list = None,
+        raw: Any = None
+    ) -> AgentRunResult:
+        return AgentRunResult(
+            ok=ok,
+            task=task,
+            data=data or {},
+            score=score,
+            feedback=feedback,
+            errors=errors or [],
+            warnings=warnings or [],
+            raw=raw
+        )
     
     @abstractmethod
     def execute(self, context: AgentContext) -> Dict[str, Any]:

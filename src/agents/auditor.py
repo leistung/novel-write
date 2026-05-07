@@ -187,7 +187,8 @@ class AuditorAgent(BaseAgent):
                 comments = content[comments_start:].strip()
         
         # 判断是否通过
-        passed = score >= self._pass_threshold
+        explicit_failed = "通过：否" in content or "不通过" in content
+        passed = score >= self._pass_threshold and not explicit_failed
         
         return ScoreResult(
             score=score,

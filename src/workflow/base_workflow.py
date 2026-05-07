@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, TypedDict, Union
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import InMemorySaver
 from pydantic_settings import BaseSettings
 from src.agents.architect import ArchitectAgent
 from src.agents.writer import WriterAgent
@@ -14,11 +13,23 @@ from src.utils.file_manager import FileManager
 from src.utils.log_manager import LogManager
 import os
 import sqlite3
+import pickle
+
+
+class PickleSerializer:
+    def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
+        return "pickle", pickle.dumps(obj)
+
+    def loads_typed(self, data: tuple[str, bytes]) -> Any:
+        _type, payload = data
+        return pickle.loads(payload)
 
 
 class WorkflowConfig(BaseSettings):
     max_retries: int = 3
     timeout: int = 300
+    checkpoint_db: str = "data/workflow_checkpoints.sqlite"
+    store_db: str = "data/workflow_store.sqlite"
 
     model_config = {
         "env_file": ".env",
@@ -49,10 +60,19 @@ class BaseWorkflowState(TypedDict, total=False):
     writer_feedback: str
     consistency_passed: bool
     score_passed: bool
+    new_outline: Optional[str]
+    new_content: Optional[str]
+    start_chapter: Optional[int]
+    count: Optional[int]
+    impact_analysis: Optional[Any]
 
 
 class BaseWorkflow(ABC):
     _checkpoint_saver = None
+    _store = None
+    _checkpoint_conn = None
+    _store_conn = None
+    config = WorkflowConfig()
 
     def __init__(self):
         self.file_manager = FileManager()
@@ -61,12 +81,79 @@ class BaseWorkflow(ABC):
         self.writer_agent = WriterAgent(llm_client.client)
         self.consistency_agent = ContinuityAuditor(llm_client.client)
         self.author_agent = AuditorAgent(llm_client.client)
-        self._ensure_checkpoint_saver()
+        self._ensure_persistence()
 
     @classmethod
-    def _ensure_checkpoint_saver(cls):
-        if cls._checkpoint_saver is None:
-            cls._checkpoint_saver = InMemorySaver()
+    def _ensure_persistence(cls):
+        base = BaseWorkflow
+        if base._checkpoint_saver is None:
+            checkpoint_path = base._resolve_path(base.config.checkpoint_db)
+            base._checkpoint_saver = base._build_sqlite_checkpoint_saver(checkpoint_path)
+
+        if base._store is None:
+            store_path = base._resolve_path(base.config.store_db)
+            base._store = base._build_sqlite_store(store_path)
+
+        cls._checkpoint_saver = base._checkpoint_saver
+        cls._store = base._store
+
+    @classmethod
+    def _build_sqlite_checkpoint_saver(cls, path: str):
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            cls._checkpoint_conn = cls._open_sqlite(path)
+            saver = SqliteSaver(cls._checkpoint_conn, serde=PickleSerializer())
+            saver.setup()
+            return saver
+        except sqlite3.OperationalError:
+            fallback = cls._fallback_sqlite_path(path, "checkpoint")
+            os.makedirs(os.path.dirname(fallback), exist_ok=True)
+            cls._checkpoint_conn = cls._open_sqlite(fallback)
+            saver = SqliteSaver(cls._checkpoint_conn, serde=PickleSerializer())
+            saver.setup()
+            return saver
+
+    @classmethod
+    def _build_sqlite_store(cls, path: str):
+        from langgraph.store.sqlite import SqliteStore
+
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            cls._store_conn = cls._open_sqlite(path)
+            store = SqliteStore(cls._store_conn)
+            store.setup()
+            return store
+        except sqlite3.OperationalError:
+            fallback = cls._fallback_sqlite_path(path, "store")
+            os.makedirs(os.path.dirname(fallback), exist_ok=True)
+            cls._store_conn = cls._open_sqlite(fallback)
+            store = SqliteStore(cls._store_conn)
+            store.setup()
+            return store
+
+    @staticmethod
+    def _open_sqlite(path: str) -> sqlite3.Connection:
+        conn = sqlite3.connect(path, timeout=1, check_same_thread=False, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("PRAGMA busy_timeout=1000")
+        return conn
+
+    @staticmethod
+    def _fallback_sqlite_path(path: str, suffix: str) -> str:
+        base, ext = os.path.splitext(path)
+        return f"{base}_{suffix}_{os.getpid()}{ext or '.sqlite'}"
+
+    @staticmethod
+    def _resolve_path(path: str) -> str:
+        if os.path.isabs(path):
+            return path
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        return os.path.join(project_root, path)
 
     @abstractmethod
     def build(self) -> StateGraph:
@@ -75,8 +162,8 @@ class BaseWorkflow(ABC):
     def compile(self, with_checkpoint: bool = True) -> Any:
         graph = self.build()
         if with_checkpoint and self._checkpoint_saver:
-            return graph.compile(checkpointer=self._checkpoint_saver)
-        return graph.compile()
+            return graph.compile(checkpointer=self._checkpoint_saver, store=self._store)
+        return graph.compile(store=self._store)
 
     def create_thread_id(self, book_id: int, chapter_num: Optional[int] = None) -> str:
         if chapter_num is not None:
@@ -86,14 +173,13 @@ class BaseWorkflow(ABC):
     def get_checkpoint(self, thread_id: str) -> Optional[Dict[str, Any]]:
         if self._checkpoint_saver is None:
             return None
-        from langchain_core.runnables import RunnableConfig
-        config = RunnableConfig()
-        checkpoint = self._checkpoint_saver.get(thread_id, config)
+        config = {'configurable': {'thread_id': thread_id, 'checkpoint_ns': ''}}
+        checkpoint = self._checkpoint_saver.get(config)
         if checkpoint:
             return {
                 'thread_id': thread_id,
                 'checkpoint': checkpoint,
-                'metadata': checkpoint.get('metadata', {})
+                'metadata': checkpoint.get('metadata', {}) if isinstance(checkpoint, dict) else {}
             }
         return None
 
@@ -102,19 +188,21 @@ class BaseWorkflow(ABC):
             return []
         
         checkpoints = []
-        from langchain_core.runnables import RunnableConfig
-        config = RunnableConfig()
+        config = None
         
         try:
-            for thread_id in self._checkpoint_saver.list(config):
-                if book_id is None or thread_id.startswith(f"book_{book_id}"):
-                    checkpoint = self._checkpoint_saver.get(thread_id, config)
-                    if checkpoint:
-                        checkpoints.append({
-                            'thread_id': thread_id,
-                            'created_at': checkpoint.get('metadata', {}).get('created_at'),
-                            'status': checkpoint.get('metadata', {}).get('status', 'unknown')
-                        })
+            for item in self._checkpoint_saver.list(config):
+                item_config = getattr(item, 'config', {}) or {}
+                configurable = item_config.get('configurable', {})
+                thread_id = configurable.get('thread_id', '')
+                if thread_id and (book_id is None or thread_id.startswith(f"book_{book_id}")):
+                    metadata = getattr(item, 'metadata', {}) or {}
+                    checkpoints.append({
+                        'thread_id': thread_id,
+                        'checkpoint_id': configurable.get('checkpoint_id'),
+                        'created_at': metadata.get('created_at'),
+                        'status': metadata.get('status', 'available')
+                    })
         except Exception as e:
             self.log_manager.log_workflow('checkpoint', f'列出checkpoint失败: {e}', {})
         
@@ -124,9 +212,7 @@ class BaseWorkflow(ABC):
         if self._checkpoint_saver is None:
             return False
         try:
-            from langchain_core.runnables import RunnableConfig
-            config = RunnableConfig()
-            self._checkpoint_saver.delete(thread_id, config)
+            self._checkpoint_saver.delete_thread(thread_id)
             return True
         except Exception:
             return False
@@ -140,7 +226,7 @@ class BaseWorkflow(ABC):
             return {'error': f'No checkpoint found for thread_id: {thread_id}'}
         
         workflow = self.compile(with_checkpoint=True)
-        config = {'configurable': {'thread_id': thread_id}}
+        config = {'configurable': {'thread_id': thread_id, 'checkpoint_ns': ''}}
         
         try:
             if inputs:
@@ -150,3 +236,13 @@ class BaseWorkflow(ABC):
             return {'success': True, 'result': result}
         except Exception as e:
             return {'error': str(e)}
+
+    def remember(self, namespace: tuple, key: str, value: Dict[str, Any]) -> None:
+        if self._store is not None:
+            self._store.put(namespace, key, value)
+
+    def recall(self, namespace: tuple, key: str) -> Optional[Dict[str, Any]]:
+        if self._store is None:
+            return None
+        item = self._store.get(namespace, key)
+        return item.value if item else None

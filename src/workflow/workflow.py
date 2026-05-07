@@ -3,6 +3,8 @@ from src.workflow.create_book_workflow import CreateBookWorkflow
 from src.workflow.continue_chapter_workflow import ContinueChapterWorkflow
 from src.workflow.update_outline_workflow import UpdateOutlineWorkflow
 from src.workflow.update_chapter_workflow import UpdateChapterWorkflow
+from src.workflow.rewrite_from_chapter_workflow import RewriteFromChapterWorkflow
+from src.workflow.audit_book_workflow import AuditBookWorkflow
 from src.utils.log_manager import LogManager
 
 
@@ -14,18 +16,37 @@ class NovelWriteWorkflow:
         self.continue_chapter_workflow_instance = ContinueChapterWorkflow()
         self.update_outline_workflow_instance = UpdateOutlineWorkflow()
         self.update_chapter_workflow_instance = UpdateChapterWorkflow()
+        self.rewrite_from_chapter_workflow_instance = RewriteFromChapterWorkflow()
+        self.audit_book_workflow_instance = AuditBookWorkflow()
         
-        # 编译工作流（暂时禁用 checkpoint 以避免序列化问题）
-        self.create_book_workflow = self.create_book_workflow_instance.compile(with_checkpoint=False)
-        self.continue_chapter_workflow = self.continue_chapter_workflow_instance.compile(with_checkpoint=False)
-        self.update_outline_workflow = self.update_outline_workflow_instance.compile(with_checkpoint=False)
-        self.update_chapter_workflow = self.update_chapter_workflow_instance.compile(with_checkpoint=False)
+        # 使用 SQLite checkpoint + SQLite store，支持长流程恢复与跨流程记忆。
+        self.create_book_workflow = self.create_book_workflow_instance.compile(with_checkpoint=True)
+        self.continue_chapter_workflow = self.continue_chapter_workflow_instance.compile(with_checkpoint=True)
+        self.update_outline_workflow = self.update_outline_workflow_instance.compile(with_checkpoint=True)
+        self.update_chapter_workflow = self.update_chapter_workflow_instance.compile(with_checkpoint=True)
+        self.rewrite_from_chapter_workflow = self.rewrite_from_chapter_workflow_instance.compile(with_checkpoint=True)
+        self.audit_book_workflow = self.audit_book_workflow_instance.compile(with_checkpoint=True)
+
+    @staticmethod
+    def _config(thread_id: str) -> Dict[str, Any]:
+        return {'configurable': {'thread_id': thread_id, 'checkpoint_ns': ''}}
+
+    @staticmethod
+    def _normalize_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(result, dict):
+            return {'result': result}
+        nested_result = result.get('result')
+        if isinstance(nested_result, dict) and nested_result.get('error'):
+            return {'error': nested_result['error'], 'result': nested_result}
+        if result.get('error'):
+            return {'error': result['error'], 'result': result}
+        return result
 
     def create_book(self, book_data: Dict[str, Any], external_context: Optional[str] = None) -> Dict[str, Any]:
         book_id = book_data.get('id', 'new')
         thread_id = f"book_{book_id}_create"
         
-        config = {'configurable': {'thread_id': thread_id}}
+        config = self._config(thread_id)
         
         result = self.create_book_workflow.invoke({
             'book_data': book_data,
@@ -34,12 +55,12 @@ class NovelWriteWorkflow:
         
         self.log_manager.log_workflow('create_book', '工作流完成', {})
         
-        return result
+        return self._normalize_result(result)
 
     def continue_chapter(self, book_id: int, chapter_num: int, external_context: Optional[str] = None) -> Dict[str, Any]:
         thread_id = f"book_{book_id}_chapter_{chapter_num}"
         
-        config = {'configurable': {'thread_id': thread_id}}
+        config = self._config(thread_id)
         
         result = self.continue_chapter_workflow.invoke({
             'book_id': book_id,
@@ -49,7 +70,7 @@ class NovelWriteWorkflow:
         
         self.log_manager.log_workflow('continue_chapter', '工作流完成', {})
         
-        return result
+        return self._normalize_result(result)
 
     def continue_chapters(self, book_id: int, start_chapter: int, count: int, external_context: Optional[str] = None) -> Dict[str, Any]:
         results = []
@@ -61,13 +82,15 @@ class NovelWriteWorkflow:
             })
 
             thread_id = f"book_{book_id}_chapter_{current_chapter}"
-            config = {'configurable': {'thread_id': thread_id}}
+            config = self._config(thread_id)
 
             result = self.continue_chapter_workflow.invoke({
                 'book_id': book_id,
                 'chapter_num': current_chapter,
                 'external_context': external_context
             }, config)
+
+            result = self._normalize_result(result)
 
             if 'error' in result:
                 self.log_manager.log_workflow('continue_chapters', f'第{current_chapter}章续写失败', {'error': result['error']})
@@ -92,7 +115,7 @@ class NovelWriteWorkflow:
 
     def update_outline(self, book_id: int, new_outline: str) -> Dict[str, Any]:
         thread_id = f"book_{book_id}_update_outline"
-        config = {'configurable': {'thread_id': thread_id}}
+        config = self._config(thread_id)
         
         result = self.update_outline_workflow.invoke({
             'book_id': book_id,
@@ -101,11 +124,11 @@ class NovelWriteWorkflow:
         
         self.log_manager.log_workflow('update_outline', '工作流完成', {})
         
-        return result.get('result', {})
+        return self._normalize_result(result).get('result', self._normalize_result(result))
 
     def update_chapter(self, book_id: int, chapter_num: int, new_content: str) -> Dict[str, Any]:
         thread_id = f"book_{book_id}_update_chapter_{chapter_num}"
-        config = {'configurable': {'thread_id': thread_id}}
+        config = self._config(thread_id)
         
         result = self.update_chapter_workflow.invoke({
             'book_id': book_id,
@@ -115,7 +138,34 @@ class NovelWriteWorkflow:
         
         self.log_manager.log_workflow('update_chapter', '工作流完成', {})
         
-        return result.get('result', {})
+        return self._normalize_result(result).get('result', self._normalize_result(result))
+
+    def rewrite_from_chapter(self, book_id: int, start_chapter: int, count: int = 1, external_context: Optional[str] = None) -> Dict[str, Any]:
+        thread_id = f"book_{book_id}_rewrite_from_{start_chapter}"
+        config = self._config(thread_id)
+
+        cleanup = self.rewrite_from_chapter_workflow.invoke({
+            'book_id': book_id,
+            'start_chapter': start_chapter
+        }, config)
+        cleanup = self._normalize_result(cleanup)
+        if 'error' in cleanup:
+            return cleanup
+
+        continued = self.continue_chapters(book_id, start_chapter, count, external_context)
+        return {
+            'result': {
+                'cleanup': cleanup.get('result', cleanup),
+                'continued': continued
+            }
+        }
+
+    def audit_book(self, book_id: int) -> Dict[str, Any]:
+        thread_id = f"book_{book_id}_audit"
+        config = self._config(thread_id)
+
+        result = self.audit_book_workflow.invoke({'book_id': book_id}, config)
+        return self._normalize_result(result).get('result', self._normalize_result(result))
 
     def get_checkpoint(self, thread_id: str) -> Optional[Dict[str, Any]]:
         return self.continue_chapter_workflow_instance.get_checkpoint(thread_id)
@@ -135,7 +185,9 @@ class NovelWriteWorkflow:
             'create_book': self.create_book_workflow,
             'continue_chapter': self.continue_chapter_workflow,
             'update_outline': self.update_outline_workflow,
-            'update_chapter': self.update_chapter_workflow
+            'update_chapter': self.update_chapter_workflow,
+            'rewrite_from_chapter': self.rewrite_from_chapter_workflow,
+            'audit_book': self.audit_book_workflow
         }
 
         if workflow_type not in workflow_map:
@@ -172,6 +224,12 @@ class NovelWriteWorkflow:
     B --> C([结束])''',
                 'update_chapter': '''graph TB
     A([开始]) --> B[update_chapter]
+    B --> C([结束])''',
+                'rewrite_from_chapter': '''graph TB
+    A([开始]) --> B[prepare_rewrite]
+    B --> C([结束])''',
+                'audit_book': '''graph TB
+    A([开始]) --> B[audit_book]
     B --> C([结束])'''
             }
             return workflow_mermaid.get(workflow_type, '')
@@ -208,6 +266,16 @@ class NovelWriteWorkflow:
                 'name': '修改章节',
                 'nodes': ['update_chapter'],
                 'edges': ['update_chapter -> END']
+            },
+            'rewrite_from_chapter': {
+                'name': '从指定章节重写',
+                'nodes': ['prepare_rewrite', 'continue_chapters'],
+                'edges': ['prepare_rewrite -> continue_chapters']
+            },
+            'audit_book': {
+                'name': '整书评估',
+                'nodes': ['audit_book'],
+                'edges': ['audit_book -> END']
             }
         }
 

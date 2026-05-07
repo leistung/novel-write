@@ -12,7 +12,8 @@ class WriteChapterInput:
                  chapter_plan: Dict[str, Any], external_context: Optional[str] = None, 
                  word_count_override: Optional[int] = None, 
                  temperature_override: Optional[float] = None, 
-                 book_dir: Optional[str] = None):
+                 book_dir: Optional[str] = None,
+                 revision_feedback: Optional[str] = None):
         self.book = book
         self.chapter_number = chapter_number
         self.chapter_plan = chapter_plan
@@ -20,6 +21,7 @@ class WriteChapterInput:
         self.word_count_override = word_count_override
         self.temperature_override = temperature_override
         self.book_dir = book_dir
+        self.revision_feedback = revision_feedback
 
 class TokenUsage:
     """Token 使用统计"""
@@ -124,6 +126,7 @@ class WriterAgent(BaseAgent):
         chapter_number = input_data.chapter_number
         chapter_plan = input_data.chapter_plan
         external_context = input_data.external_context
+        revision_feedback = input_data.revision_feedback
         word_count_override = input_data.word_count_override
         temperature_override = input_data.temperature_override
         book_dir = input_data.book_dir
@@ -165,6 +168,7 @@ class WriterAgent(BaseAgent):
             'hooks': hooks,
             'word_count': word_count_override or book.get('chapter_words', 3000),
             'external_context': external_context,
+            'revision_feedback': revision_feedback,
             'chapter_summaries': chapter_summaries,
             'subplot_board': subplot_board,
             'emotional_arcs': emotional_arcs,
@@ -315,6 +319,7 @@ class WriterAgent(BaseAgent):
         hooks = params['hooks']
         word_count = params['word_count']
         external_context = params['external_context']
+        revision_feedback = params.get('revision_feedback')
         chapter_summaries = params['chapter_summaries']
         subplot_board = params['subplot_board']
         emotional_arcs = params['emotional_arcs']
@@ -322,6 +327,7 @@ class WriterAgent(BaseAgent):
         language = params['language']
 
         context_block = f"\n## 外部指令\n{external_context}\n" if external_context else ""
+        revision_block = f"\n## 本次重写必须修复的问题\n{revision_feedback}\n" if revision_feedback else ""
         ledger_block = f"\n## 资源账本\n{ledger}\n" if ledger else ""
         summaries_block = f"\n## 章节摘要\n{chapter_summaries}\n" if chapter_summaries != "(章节摘要尚未创建)" else ""
         subplot_block = f"\n## 支线进度板\n{subplot_board}\n" if subplot_board != "(支线进度板尚未创建)" else ""
@@ -345,6 +351,7 @@ class WriterAgent(BaseAgent):
         if language == "en":
             return f"""Write chapter {chapter_number}.
 {context_block}
+{revision_block}
 {chapter_plan_block}
 ## Current State
 {current_state}
@@ -366,6 +373,7 @@ Requirements:
         else:
             return f"""请续写第{chapter_number}章。
 {context_block}
+{revision_block}
 {chapter_plan_block}
 ## 当前状态卡
 {current_state}
@@ -392,11 +400,11 @@ Requirements:
         chapter_content = content
 
         content = content.replace('\r\n', '\n')
-        title_match = re.search(r'CHAPTER_TITLE\s*\n\s*(.+?)(?:\n|$)', content, re.IGNORECASE | re.DOTALL)
+        title_match = re.search(r'CHAPTER_TITLE\s*:?\s*(.+?)(?:\n|$)', content, re.IGNORECASE)
         if title_match:
             title = title_match.group(1).strip()
 
-        content_match = re.search(r'CHAPTER_CONTENT\s*\n([\s\S]+)$', content, re.IGNORECASE)
+        content_match = re.search(r'CHAPTER_CONTENT\s*:?\s*\n([\s\S]+)$', content, re.IGNORECASE)
         if content_match:
             chapter_content = content_match.group(1).strip()
 
@@ -600,7 +608,8 @@ Requirements:
                 external_context=external_context,
                 word_count_override=word_count_override,
                 temperature_override=temperature_override,
-                book_dir=book_dir
+                book_dir=book_dir,
+                revision_feedback=context.get('revision_feedback')
             )
             
             output = self.write_chapter(input_data)

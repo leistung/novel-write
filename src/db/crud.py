@@ -34,6 +34,18 @@ def delete_book(db: Session, book_id: int) -> bool:
 
 # Chapter CRUD operations
 def create_chapter(db: Session, chapter_data: dict) -> Chapter:
+    existing = get_chapter_by_number(
+        db,
+        chapter_data.get("book_id"),
+        chapter_data.get("chapter_number")
+    )
+    if existing:
+        for key, value in chapter_data.items():
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     db_chapter = Chapter(**chapter_data)
     db.add(db_chapter)
     db.commit()

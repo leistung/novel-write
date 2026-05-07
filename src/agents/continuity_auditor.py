@@ -155,7 +155,8 @@ class ContinuityAuditor(BaseAgent):
         score = int(score_match.group(1)) if score_match else 0
         
         # 判断是否通过
-        is_consistent = score >= 80
+        explicit_failed = "通过：否" in content or "不通过" in content
+        is_consistent = score >= 80 and not explicit_failed
         
         # 提取报告内容
         report_start = content.find("## 检查报告")
@@ -177,15 +178,15 @@ class ContinuityAuditor(BaseAgent):
         
         if "情节断层" in content:
             plot_section = content.split("情节断层")[1].split("人物断层")[0] if "人物断层" in content else content.split("情节断层")[1]
-            plot_breaks = [line.strip() for line in plot_section.split("\n") if line.strip()]
+            plot_breaks = [line.strip() for line in plot_section.split("\n") if line.strip() and line.strip() not in {"无", "暂无"}]
         
         if "人物断层" in content:
             char_section = content.split("人物断层")[1].split("场景断层")[0] if "场景断层" in content else content.split("人物断层")[1]
-            character_breaks = [line.strip() for line in char_section.split("\n") if line.strip()]
+            character_breaks = [line.strip() for line in char_section.split("\n") if line.strip() and line.strip() not in {"无", "暂无"}]
         
         if "场景断层" in content:
             setting_section = content.split("场景断层")[1]
-            setting_breaks = [line.strip() for line in setting_section.split("\n") if line.strip()]
+            setting_breaks = [line.strip() for line in setting_section.split("\n") if line.strip() and line.strip() not in {"无", "暂无"}]
         
         return ContinuityCheckResult(
             is_consistent=is_consistent,

@@ -36,6 +36,13 @@ class FileManager:
             f.write(content)
         return file_path
 
+    def save_outline(self, book_id: int, content: str) -> str:
+        """保存用户维护的故事大纲"""
+        file_path = os.path.join(self.get_book_dir(book_id), "outline.md")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return file_path
+
     def save_book_rules(self, book_id: int, content: str) -> str:
         """保存书籍规则"""
         file_path = os.path.join(self.get_book_dir(book_id), "book_rules.md")
