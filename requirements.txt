@@ -26,6 +26,7 @@ langchain-core==1.2.26
 langchain-openai==1.1.12
 langgraph==1.1.6
 langgraph-checkpoint==4.0.1
+langgraph-checkpoint-sqlite
 langgraph-prebuilt==1.0.9
 langgraph-sdk==0.3.12
 langsmith==0.7.25

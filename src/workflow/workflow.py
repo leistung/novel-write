@@ -1,669 +1,74 @@
-from typing import Dict, Any, Optional, TypedDict
-from langgraph.graph import StateGraph, END
-from src.agents.architect import ArchitectAgent
-from src.agents.writer import WriterAgent
-from src.agents.continuity_auditor import ContinuityAuditor as ConsistencyAgent
-from src.agents.auditor import AuditorAgent as AuthorAgent
-from src.db.crud import create_book, get_book, update_book, create_chapter, get_chapter_by_number, update_chapter, delete_chapters_after
-from src.db.config import get_db
-from src.llm.provider import llm_client
-from src.utils.file_manager import FileManager
+from typing import Dict, Any, Optional, List
+from src.workflow.create_book_workflow import CreateBookWorkflow
+from src.workflow.continue_chapter_workflow import ContinueChapterWorkflow
+from src.workflow.update_outline_workflow import UpdateOutlineWorkflow
+from src.workflow.update_chapter_workflow import UpdateChapterWorkflow
 from src.utils.log_manager import LogManager
-from sqlalchemy.orm import Session
 
-class WorkflowState(TypedDict, total=False):
-    book_id: Optional[int]
-    book_data: Optional[Dict[str, Any]]
-    chapter_num: Optional[int]
-    chapter_content: Optional[Any]
-    chapter_outline: Optional[str]
-    external_context: Optional[str]
-    current_state: Optional[str]
-    previous_chapter_summary: Optional[str]
-    error: Optional[str]
-    result: Optional[Dict[str, Any]]
-    chapter_plan: Optional[Any]
-    check_result: Optional[Dict[str, Any]]
-    consistency_result: Optional[Dict[str, Any]]
-    score_result: Optional[Dict[str, Any]]
-    architect_retry_count: int
-    writer_retry_count: int
-    architect_feedback: str
-    writer_feedback: str
-    consistency_passed: bool
-    score_passed: bool
 
 class NovelWriteWorkflow:
     def __init__(self):
-        # 初始化工具
-        self.file_manager = FileManager()
         self.log_manager = LogManager()
+        # 保存工作流实例（不是编译后的对象）
+        self.create_book_workflow_instance = CreateBookWorkflow()
+        self.continue_chapter_workflow_instance = ContinueChapterWorkflow()
+        self.update_outline_workflow_instance = UpdateOutlineWorkflow()
+        self.update_chapter_workflow_instance = UpdateChapterWorkflow()
         
-        # 初始化agent
-        self.architect_agent = ArchitectAgent(llm_client.client)
-        self.writer_agent = WriterAgent(llm_client.client)
-        self.consistency_agent = ConsistencyAgent(llm_client.client)
-        self.author_agent = AuthorAgent(llm_client.client)
-        self.create_book_workflow = self._build_create_book_workflow()
-        self.continue_chapter_workflow = self._build_continue_chapter_workflow()
-        self.update_outline_workflow = self._build_update_outline_workflow()
-        self.update_chapter_workflow = self._build_update_chapter_workflow()
-    
-    def _build_create_book_workflow(self):
-        """构建创建新书工作流"""
-        def generate_foundation(state: Dict[str, Any]) -> Dict[str, Any]:
-            """生成基础设定"""
-            book_data = state['book_data']
-            external_context = state.get('external_context', '')
-            
-            # 记录工作流开始
-            self.log_manager.log_workflow('create_book', '开始生成基础设定', {'book_title': book_data.get('title')})
-            
-            # 生成基础设定
-            foundation = self.architect_agent.generate_foundation(book_data, external_context)
-            
-            # 记录Agent执行
-            self.log_manager.log_agent('Architect', '生成基础设定完成', {'book_title': book_data.get('title')})
-            
-            # 保存到数据库
-            db = next(get_db())
-            book_data.update({
-                'story_bible': foundation.story_bible,
-                'volume_outline': foundation.volume_outline,
-                'book_rules': foundation.book_rules,
-                'current_state': foundation.current_state,
-                'pending_hooks': foundation.pending_hooks
-            })
-            book = create_book(db, book_data)
-            
-            # 记录数据库操作
-            self.log_manager.log_workflow('create_book', '保存到数据库', {'book_id': book.id, 'book_title': book.title})
-            
-            # 保存到文件系统
-            self.file_manager.save_story_bible(book.id, foundation.story_bible)
-            self.file_manager.save_volume_outline(book.id, foundation.volume_outline)
-            self.file_manager.save_book_rules(book.id, foundation.book_rules)
-            self.file_manager.save_current_state(book.id, foundation.current_state)
-            self.file_manager.save_pending_hooks(book.id, foundation.pending_hooks)
-            
-            # 记录文件保存
-            self.log_manager.log_workflow('create_book', '保存到文件系统', {'book_id': book.id, 'files': ['story_bible.md', 'volume_outline.md', 'book_rules.md', 'current_state.md', 'pending_hooks.md']})
-            
-            return {
-                'book_id': book.id,
-                'book_data': book_data,
-                'result': {
-                    'story_bible': foundation.story_bible,
-                    'volume_outline': foundation.volume_outline,
-                    'book_rules': foundation.book_rules
-                }
-            }
-        
-        graph = StateGraph(WorkflowState)
-        graph.add_node('generate_foundation', generate_foundation)
-        graph.set_entry_point('generate_foundation')
-        graph.add_edge('generate_foundation', END)
-        
-        return graph.compile()
-    
-    def _build_continue_chapter_workflow(self):
-        """构建续写下一章工作流 - 带打回重试机制"""
-        
-        def plan_chapter(state: Dict[str, Any]) -> Dict[str, Any]:
-            """规划章节内容 (Architect)"""
-            book_id = state['book_id']
-            chapter_num = state['chapter_num']
-            external_context = state.get('external_context', '')
-            architect_feedback = state.get('architect_feedback', '')
-            architect_retry_count = state.get('architect_retry_count', 0)
-            
-            self.log_manager.log_workflow('continue_chapter', f'开始规划章节（第{architect_retry_count + 1}次尝试）', {'book_id': book_id, 'chapter_num': chapter_num})
-            
-            db = next(get_db())
-            book = get_book(db, book_id)
-            book_data = {
-                'id': book.id,
-                'title': book.title,
-                'genre': book.genre,
-                'platform': book.platform,
-                'chapter_words': book.chapter_words,
-                'target_chapters': book.target_chapters,
-                'outline': book.outline
-            }
-            
-            previous_chapter = get_chapter_by_number(db, book_id, chapter_num - 1)
-            previous_chapter_summary = previous_chapter.chapter_outline if previous_chapter else ""
-            
-            combined_feedback = external_context
-            if architect_feedback:
-                combined_feedback = f"{external_context}\n\n【上次问题反馈】\n{architect_feedback}" if external_context else architect_feedback
-            
-            chapter_plan = self.architect_agent.plan_chapter(
-                book_data, chapter_num, book.current_state or "", previous_chapter_summary, combined_feedback
-            )
-            
-            self.log_manager.log_agent('Architect', '规划章节完成', {
-                'book_id': book_id, 
-                'chapter_num': chapter_num,
-                'retry_count': architect_retry_count,
-                'chapter_outline': chapter_plan.chapter_outline[:100] + '...' if chapter_plan.chapter_outline else ''
-            })
-            
-            return {
-                'book_data': book_data,
-                'chapter_plan': chapter_plan,
-                'current_state': book.current_state or "",
-                'chapter_num': chapter_num,
-                'external_context': external_context,
-                'architect_retry_count': architect_retry_count,
-                'architect_feedback': '',
-                'writer_feedback': '',
-                'consistency_passed': False,
-                'score_passed': False
-            }
-        
-        def check_outline(state: Dict[str, Any]) -> Dict[str, Any]:
-            """检查章节大纲是否合理 (Writer)"""
-            chapter_plan = state['chapter_plan']
-            book_data = state['book_data']
-            chapter_num = state['chapter_num']
-            writer_feedback = state.get('writer_feedback', '')
-            writer_retry_count = state.get('writer_retry_count', 0)
-            
-            self.log_manager.log_workflow('continue_chapter', f'开始检查章节大纲（第{writer_retry_count + 1}次尝试）', {'book_id': book_data['id'], 'chapter_num': chapter_num})
-            
-            check_result = self.writer_agent.validate_chapter_outline(chapter_plan.chapter_outline, book_data)
-            
-            self.log_manager.log_agent('Writer', '检查章节大纲完成', {
-                'book_id': book_data['id'], 
-                'chapter_num': chapter_num, 
-                'is_valid': check_result['is_valid'],
-                'suggestions': check_result['suggestions'][:100] + '...' if check_result['suggestions'] else '',
-                'retry_count': writer_retry_count
-            })
-            
-            if not check_result['is_valid']:
-                new_retry_count = writer_retry_count + 1
-                if new_retry_count >= 3:
-                    return {'error': f"章节大纲连续3次不合理，终止: {check_result['suggestions']}"}
-                
-                self.log_manager.log_agent('Writer', '大纲不合理，打回Architect重试', {
-                    'retry_count': new_retry_count,
-                    'suggestions': check_result['suggestions']
-                })
-                
-                return {
-                    'chapter_plan': chapter_plan,
-                    'book_data': book_data,
-                    'chapter_num': chapter_num,
-                    'current_state': state.get('current_state'),
-                    'external_context': state.get('external_context'),
-                    'architect_retry_count': state.get('architect_retry_count', 0) + 1,
-                    'writer_retry_count': new_retry_count,
-                    'architect_feedback': f"Writer检查：大纲不合理 - {check_result['suggestions']}",
-                    'writer_feedback': '',
-                    'consistency_passed': False,
-                    'score_passed': False
-                }
-            
-            return {
-                'check_result': check_result,
-                'book_data': book_data,
-                'chapter_plan': chapter_plan,
-                'current_state': state.get('current_state'),
-                'chapter_num': chapter_num,
-                'external_context': state.get('external_context'),
-                'architect_retry_count': state.get('architect_retry_count', 0),
-                'writer_retry_count': writer_retry_count,
-                'architect_feedback': state.get('architect_feedback', ''),
-                'writer_feedback': '',
-                'consistency_passed': False,
-                'score_passed': False
-            }
-        
-        def write_chapter(state: Dict[str, Any]) -> Dict[str, Any]:
-            """写下一章 (Writer)"""
-            book_data = state['book_data']
-            chapter_num = state['chapter_num']
-            chapter_plan = state['chapter_plan']
-            current_state = state['current_state']
-            external_context = state.get('external_context', '')
-            
-            self.log_manager.log_workflow('continue_chapter', '开始写章节', {'book_id': book_data['id'], 'chapter_num': chapter_num})
-            
-            from src.agents.writer import WriteChapterInput
-            book_dir = self.file_manager.get_book_dir(book_data['id'])
-            
-            chapter_plan_dict = {
-                'chapter_outline': chapter_plan.chapter_outline if hasattr(chapter_plan, 'chapter_outline') else str(chapter_plan),
-                'character_states': chapter_plan.character_states if hasattr(chapter_plan, 'character_states') else '',
-                'setting': chapter_plan.setting if hasattr(chapter_plan, 'setting') else '',
-                'plot_points': chapter_plan.plot_points if hasattr(chapter_plan, 'plot_points') else []
-            }
-            
-            input_data = WriteChapterInput(
-                book=book_data,
-                chapter_number=chapter_num,
-                chapter_plan=chapter_plan_dict,
-                external_context=external_context,
-                word_count_override=book_data['chapter_words'],
-                book_dir=book_dir
-            )
-            chapter_content = self.writer_agent.write_chapter(input_data)
-            
-            token_usage_info = chapter_content.token_usage if chapter_content.token_usage else {}
-            self.log_manager.log_agent('Writer', '写章节完成', {
-                'book_id': book_data['id'], 
-                'chapter_num': chapter_num, 
-                'word_count': len(chapter_content.content),
-                'title': chapter_content.title,
-                'token_usage': token_usage_info
-            })
-            
-            self.file_manager.save_chapter_content(book_data['id'], chapter_num, chapter_content.content)
-            
-            return {
-                'chapter_content': chapter_content,
-                'book_data': book_data,
-                'chapter_num': chapter_num,
-                'chapter_plan': chapter_plan,
-                'current_state': current_state,
-                'external_context': external_context,
-                'architect_retry_count': state.get('architect_retry_count', 0),
-                'writer_retry_count': state.get('writer_retry_count', 0),
-                'architect_feedback': state.get('architect_feedback', ''),
-                'writer_feedback': state.get('writer_feedback', ''),
-                'consistency_passed': False,
-                'score_passed': False
-            }
-        
-        def check_consistency(state: Dict[str, Any]) -> Dict[str, Any]:
-            """检查连续性 (Checker)"""
-            book_data = state['book_data']
-            chapter_content = state['chapter_content']
-            chapter_num = state['chapter_num']
-            
-            self.log_manager.log_workflow('continue_chapter', '开始检查连续性', {'book_id': book_data['id'], 'chapter_num': chapter_num})
-            
-            db = next(get_db())
-            previous_chapter = get_chapter_by_number(db, book_data['id'], chapter_num - 1)
-            previous_chapter_content = previous_chapter.content if previous_chapter else ""
-            
-            consistency_result = self.consistency_agent.check_chapter_consistency(
-                book_data, chapter_num, chapter_content.content, previous_chapter_content
-            )
-            
-            issues = []
-            if consistency_result.plot_breaks:
-                issues.extend([{'type': 'plot', 'message': msg} for msg in consistency_result.plot_breaks])
-            if consistency_result.character_breaks:
-                issues.extend([{'type': 'character', 'message': msg} for msg in consistency_result.character_breaks])
-            if consistency_result.setting_breaks:
-                issues.extend([{'type': 'setting', 'message': msg} for msg in consistency_result.setting_breaks])
+        # 编译工作流（暂时禁用 checkpoint 以避免序列化问题）
+        self.create_book_workflow = self.create_book_workflow_instance.compile(with_checkpoint=False)
+        self.continue_chapter_workflow = self.continue_chapter_workflow_instance.compile(with_checkpoint=False)
+        self.update_outline_workflow = self.update_outline_workflow_instance.compile(with_checkpoint=False)
+        self.update_chapter_workflow = self.update_chapter_workflow_instance.compile(with_checkpoint=False)
 
-            issue_messages = [issue.get('message', '') for issue in issues[:3]]
-            self.log_manager.log_agent('Consistency', '检查连续性完成', {
-                'book_id': book_data['id'],
-                'chapter_num': chapter_num,
-                'issue_count': len(issues),
-                'score': consistency_result.score,
-                'issues': issue_messages
-            })
-            
-            if issues:
-                new_retry_count = state.get('writer_retry_count', 0) + 1
-                if new_retry_count >= 3:
-                    return {'error': f"连续性问题连续3次无法解决，终止: {issue_messages}"}
-                
-                self.log_manager.log_agent('Consistency', '连续性问题，打回Writer重写', {
-                    'retry_count': new_retry_count,
-                    'issues': issue_messages
-                })
-                
-                return {
-                    'chapter_content': chapter_content,
-                    'book_data': book_data,
-                    'chapter_num': chapter_num,
-                    'chapter_plan': state.get('chapter_plan'),
-                    'current_state': state.get('current_state'),
-                    'external_context': state.get('external_context'),
-                    'architect_retry_count': state.get('architect_retry_count', 0),
-                    'writer_retry_count': new_retry_count,
-                    'architect_feedback': state.get('architect_feedback', ''),
-                    'writer_feedback': f"Checker检查：连续性问题 - {'; '.join(issue_messages)}",
-                    'consistency_passed': False,
-                    'score_passed': False
-                }
-            
-            return {
-                'consistency_result': consistency_result,
-                'chapter_content': chapter_content,
-                'book_data': book_data,
-                'chapter_num': chapter_num,
-                'chapter_plan': state.get('chapter_plan'),
-                'current_state': state.get('current_state'),
-                'external_context': state.get('external_context'),
-                'architect_retry_count': state.get('architect_retry_count', 0),
-                'writer_retry_count': state.get('writer_retry_count', 0),
-                'architect_feedback': state.get('architect_feedback', ''),
-                'writer_feedback': '',
-                'consistency_passed': True,
-                'score_passed': False
-            }        
-        def score_chapter(state: Dict[str, Any]) -> Dict[str, Any]:
-            """评分章节 (Author)"""
-            book_data = state['book_data']
-            chapter_content = state['chapter_content']
-            chapter_num = state['chapter_num']
-            architect_retry_count = state.get('architect_retry_count', 0)
-            
-            self.log_manager.log_workflow('continue_chapter', '开始评分章节', {'book_id': book_data['id'], 'chapter_num': chapter_num})
-            
-            score_result = self.author_agent.score_chapter(book_data, chapter_num, chapter_content.content, "")
-            
-            suggestions = score_result.suggestions
-            feedback = suggestions if suggestions else ''
-            score = score_result.score
-            
-            self.log_manager.log_agent('Author', '评分章节完成', {
-                'book_id': book_data['id'], 
-                'chapter_num': chapter_num, 
-                'score': score,
-                'feedback': feedback[:100] + '...' if feedback else '',
-                'retry_count': architect_retry_count
-            })
-            
-            if score < 80:
-                new_retry_count = architect_retry_count + 1
-                if new_retry_count >= 3:
-                    return {'error': f"章节评分连续3次低于80分，终止: {feedback}"}
-                
-                self.log_manager.log_agent('Author', '评分过低，打回Architect重写', {
-                    'retry_count': new_retry_count,
-                    'score': score,
-                    'feedback': feedback
-                })
-                
-                return {
-                    'chapter_content': chapter_content,
-                    'book_data': book_data,
-                    'chapter_num': chapter_num,
-                    'chapter_plan': state.get('chapter_plan'),
-                    'current_state': state.get('current_state'),
-                    'external_context': state.get('external_context'),
-                    'architect_retry_count': new_retry_count,
-                    'writer_retry_count': 0,
-                    'architect_feedback': f"Author评分{score}分：{feedback}",
-                    'writer_feedback': '',
-                    'consistency_passed': True,
-                    'score_passed': False
-                }
-            
-            return {
-                'score_result': score_result,
-                'consistency_result': state.get('consistency_result'),
-                'chapter_content': chapter_content,
-                'book_data': book_data,
-                'chapter_num': chapter_num,
-                'chapter_plan': state.get('chapter_plan'),
-                'current_state': state.get('current_state'),
-                'external_context': state.get('external_context'),
-                'architect_retry_count': architect_retry_count,
-                'writer_retry_count': state.get('writer_retry_count', 0),
-                'architect_feedback': '',
-                'writer_feedback': '',
-                'consistency_passed': True,
-                'score_passed': True
-            }
-        
-        def update_book_state(state: Dict[str, Any]) -> Dict[str, Any]:
-            """更新书籍状态 (Architect)"""
-            book_id = state['book_id']
-            book_data = state['book_data']
-            chapter_num = state['chapter_num']
-            chapter_content = state['chapter_content']
-            chapter_plan = state['chapter_plan']
-            
-            self.log_manager.log_workflow('continue_chapter', '开始更新书籍状态', {'book_id': book_id, 'chapter_num': chapter_num})
-            
-            existing_summary = self.file_manager.read_chapter_summary(book_id)
-            new_chapter_summary = f"第{chapter_num}章 {chapter_content.title}：{chapter_content.chapter_summary}"
-            updated_chapter_summary = existing_summary + "\n" + new_chapter_summary if existing_summary else new_chapter_summary
-            
-            final_updated_state = chapter_content.updated_state
-            final_updated_hooks = chapter_content.updated_hooks
-            final_updated_subplots = chapter_content.updated_subplots
-            final_updated_emotional_arcs = chapter_content.updated_emotional_arcs
-            final_updated_character_matrix = chapter_content.updated_character_matrix
-            
-            self.log_manager.log_agent('Writer', '使用结算结果更新状态文件', {'book_id': book_id, 'chapter_num': chapter_num})
-            
-            db = next(get_db())
-            chapter_outline_str = chapter_plan.chapter_outline if hasattr(chapter_plan, 'chapter_outline') else str(chapter_plan)
-            
-            score_result = state.get('score_result', {})
-            consistency_result = state.get('consistency_result', {})
-            audit_score = score_result.get('score', 0) if isinstance(score_result, dict) else 0
-            continuity_score = consistency_result.get('score', 0) if isinstance(consistency_result, dict) else 0
-            
-            chapter = create_chapter(db, {
-                'book_id': book_id,
-                'chapter_number': chapter_num,
-                'title': chapter_content.title,
-                'content': chapter_content.content,
-                'chapter_outline': chapter_outline_str,
-                'word_count': chapter_content.word_count,
-                'audit_score': audit_score,
-                'continuity_score': continuity_score
-            })
-            
-            update_book(db, book_id, {
-                'current_state': final_updated_state,
-                'pending_hooks': final_updated_hooks,
-                'subplot_board': final_updated_subplots,
-                'emotional_arcs': final_updated_emotional_arcs,
-                'character_matrix': final_updated_character_matrix,
-                'chapter_summaries': updated_chapter_summary
-            })
-            
-            self.log_manager.log_workflow('continue_chapter', '保存到数据库', {'book_id': book_id, 'chapter_id': chapter.id, 'chapter_num': chapter_num})
-            
-            self.file_manager.save_current_state(book_id, final_updated_state)
-            self.file_manager.save_pending_hooks(book_id, final_updated_hooks)
-            self.file_manager.save_subplot_board(book_id, final_updated_subplots)
-            self.file_manager.save_emotional_arcs(book_id, final_updated_emotional_arcs)
-            self.file_manager.save_character_matrix(book_id, final_updated_character_matrix)
-            self.file_manager.save_chapter_summary(book_id, updated_chapter_summary)
-            
-            self.log_manager.log_workflow('continue_chapter', '保存状态到文件系统', {'book_id': book_id})
-            
-            return {
-                'result': {
-                    'chapter_id': chapter.id,
-                    'chapter_number': chapter_num,
-                    'title': chapter_content.title,
-                    'content': chapter_content.content,
-                    'word_count': chapter_content.word_count,
-                    'audit_score': audit_score,
-                    'continuity_score': continuity_score
-                }
-            }
-        
-        def route_next_step(state: Dict[str, Any]) -> str:
-            """根据检查结果路由下一步"""
-            if 'error' in state:
-                return 'handle_error'
-            
-            consistency_passed = state.get('consistency_passed', False)
-            score_passed = state.get('score_passed', False)
-            architect_retry_count = state.get('architect_retry_count', 0)
-            writer_retry_count = state.get('writer_retry_count', 0)
-            
-            if architect_retry_count > 0 or state.get('architect_feedback', ''):
-                return 'plan_chapter'
-            elif writer_retry_count > 0 or state.get('writer_feedback', ''):
-                return 'write_chapter'
-            
-            if consistency_passed and score_passed:
-                return 'update_book_state'
-            
-            if not consistency_passed:
-                return 'write_chapter'
-            
-            if consistency_passed and not score_passed:
-                return 'score_chapter'
-            
-            return 'update_book_state'
-        
-        def handle_error(state: Dict[str, Any]) -> Dict[str, Any]:
-            """处理错误"""
-            return {'result': {'error': state['error']}}
-        
-        graph = StateGraph(WorkflowState)
-        graph.add_node('plan_chapter', plan_chapter)
-        graph.add_node('check_outline', check_outline)
-        graph.add_node('write_chapter', write_chapter)
-        graph.add_node('check_consistency', check_consistency)
-        graph.add_node('score_chapter', score_chapter)
-        graph.add_node('update_book_state', update_book_state)
-        graph.add_node('handle_error', handle_error)
-        
-        graph.set_entry_point('plan_chapter')
-        graph.add_edge('plan_chapter', 'check_outline')
-        graph.add_conditional_edges('check_outline', route_next_step, {
-            'plan_chapter': 'plan_chapter',
-            'write_chapter': 'write_chapter',
-            'update_book_state': 'update_book_state',
-            'handle_error': 'handle_error'
-        })
-        graph.add_edge('write_chapter', 'check_consistency')
-        graph.add_conditional_edges('check_consistency', route_next_step, {
-            'write_chapter': 'write_chapter',
-            'plan_chapter': 'plan_chapter',
-            'score_chapter': 'score_chapter',
-            'update_book_state': 'update_book_state',
-            'handle_error': 'handle_error'
-        })
-        graph.add_conditional_edges('score_chapter', route_next_step, {
-            'plan_chapter': 'plan_chapter',
-            'write_chapter': 'write_chapter',
-            'update_book_state': 'update_book_state',
-            'handle_error': 'handle_error'
-        })
-        graph.add_edge('update_book_state', END)
-        graph.add_edge('handle_error', END)
-        
-        return graph.compile()
-    
-    def _build_update_outline_workflow(self):
-        """构建修改大纲工作流"""
-        def update_outline(state: Dict[str, Any]) -> Dict[str, Any]:
-            """修改大纲"""
-            book_id = state['book_id']
-            new_outline = state['new_outline']
-            
-            # 记录工作流开始
-            self.log_manager.log_workflow('update_outline', '开始修改大纲', {'book_id': book_id})
-            
-            # 保存到数据库
-            db = next(get_db())
-            book = get_book(db, book_id)
-            update_book(db, book_id, {'outline': new_outline})
-            
-            # 记录数据库操作
-            self.log_manager.log_workflow('update_outline', '保存到数据库', {'book_id': book_id, 'book_title': book.title})
-            
-            return {
-                'result': {
-                    'book_id': book_id,
-                    'message': '大纲修改成功'
-                }
-            }
-        
-        graph = StateGraph(WorkflowState)
-        graph.add_node('update_outline', update_outline)
-        graph.set_entry_point('update_outline')
-        graph.add_edge('update_outline', END)
-        
-        return graph.compile()
-    
-    def _build_update_chapter_workflow(self):
-        """构建修改章节工作流"""
-        def update_chapter_content(state: Dict[str, Any]) -> Dict[str, Any]:
-            """修改章节内容"""
-            book_id = state['book_id']
-            chapter_num = state['chapter_num']
-            new_content = state['new_content']
-            
-            # 保存到数据库
-            db = next(get_db())
-            chapter = get_chapter_by_number(db, book_id, chapter_num)
-            if chapter:
-                update_chapter(db, chapter.id, {'content': new_content, 'word_count': len(new_content)})
-                return {
-                    'result': {
-                        'chapter_id': chapter.id,
-                        'message': '章节修改成功'
-                    }
-                }
-            else:
-                return {'error': '章节不存在'}
-        
-        def handle_error(state: Dict[str, Any]) -> Dict[str, Any]:
-            """处理错误"""
-            return {'result': {'error': state['error']}}
-        
-        graph = StateGraph(WorkflowState)
-        graph.add_node('update_chapter_content', update_chapter_content)
-        graph.add_node('handle_error', handle_error)
-        
-        graph.set_entry_point('update_chapter_content')
-        graph.add_conditional_edges('update_chapter_content', lambda s: 'error' in s, {True: 'handle_error', False: END})
-        graph.add_edge('handle_error', END)
-        
-        return graph.compile()
-    
     def create_book(self, book_data: Dict[str, Any], external_context: Optional[str] = None) -> Dict[str, Any]:
-        """创建新书"""
+        book_id = book_data.get('id', 'new')
+        thread_id = f"book_{book_id}_create"
+        
+        config = {'configurable': {'thread_id': thread_id}}
+        
         result = self.create_book_workflow.invoke({
             'book_data': book_data,
             'external_context': external_context
-        })
+        }, config)
+        
+        self.log_manager.log_workflow('create_book', '工作流完成', {})
+        
         return result
-    
+
     def continue_chapter(self, book_id: int, chapter_num: int, external_context: Optional[str] = None) -> Dict[str, Any]:
-        """续写下一章"""
+        thread_id = f"book_{book_id}_chapter_{chapter_num}"
+        
+        config = {'configurable': {'thread_id': thread_id}}
+        
         result = self.continue_chapter_workflow.invoke({
             'book_id': book_id,
             'chapter_num': chapter_num,
             'external_context': external_context
-        })
-        return result
-    
-    def continue_chapters(self, book_id: int, start_chapter: int, count: int, external_context: Optional[str] = None) -> Dict[str, Any]:
-        """连续续写多个章节
+        }, config)
         
-        Args:
-            book_id: 书籍ID
-            start_chapter: 起始章节号
-            count: 续写章节数量
-            external_context: 外部指令（可选）
-            
-        Returns:
-            包含成功信息的字典
-        """
+        self.log_manager.log_workflow('continue_chapter', '工作流完成', {})
+        
+        return result
+
+    def continue_chapters(self, book_id: int, start_chapter: int, count: int, external_context: Optional[str] = None) -> Dict[str, Any]:
         results = []
         current_chapter = start_chapter
-        
+
         for i in range(count):
-            self.log_manager.log_workflow('continue_chapters', f'开始续写第{current_chapter}章（{i+1}/{count}）', {'book_id': book_id, 'chapter_num': current_chapter})
-            
+            self.log_manager.log_workflow('continue_chapters', f'开始续写第{current_chapter}章（{i+1}/{count}）', {
+                'book_id': book_id, 'chapter_num': current_chapter
+            })
+
+            thread_id = f"book_{book_id}_chapter_{current_chapter}"
+            config = {'configurable': {'thread_id': thread_id}}
+
             result = self.continue_chapter_workflow.invoke({
                 'book_id': book_id,
                 'chapter_num': current_chapter,
                 'external_context': external_context
-            })
-            
+            }, config)
+
             if 'error' in result:
                 self.log_manager.log_workflow('continue_chapters', f'第{current_chapter}章续写失败', {'error': result['error']})
                 return {
@@ -671,47 +76,61 @@ class NovelWriteWorkflow:
                     'completed_count': i,
                     'results': results
                 }
-            
+
             results.append({
                 'chapter_num': current_chapter,
                 'result': result.get('result', {})
             })
-            
+
             self.log_manager.log_workflow('continue_chapters', f'第{current_chapter}章续写完成', {'chapter_num': current_chapter})
             current_chapter += 1
-        
+
         return {
             'completed_count': count,
             'results': results
         }
-    
+
     def update_outline(self, book_id: int, new_outline: str) -> Dict[str, Any]:
-        """修改大纲"""
+        thread_id = f"book_{book_id}_update_outline"
+        config = {'configurable': {'thread_id': thread_id}}
+        
         result = self.update_outline_workflow.invoke({
             'book_id': book_id,
             'new_outline': new_outline
-        })
+        }, config)
+        
+        self.log_manager.log_workflow('update_outline', '工作流完成', {})
+        
         return result.get('result', {})
-    
+
     def update_chapter(self, book_id: int, chapter_num: int, new_content: str) -> Dict[str, Any]:
-        """修改章节内容"""
+        thread_id = f"book_{book_id}_update_chapter_{chapter_num}"
+        config = {'configurable': {'thread_id': thread_id}}
+        
         result = self.update_chapter_workflow.invoke({
             'book_id': book_id,
             'chapter_num': chapter_num,
             'new_content': new_content
-        })
+        }, config)
+        
+        self.log_manager.log_workflow('update_chapter', '工作流完成', {})
+        
         return result.get('result', {})
 
+    def get_checkpoint(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        return self.continue_chapter_workflow_instance.get_checkpoint(thread_id)
+
+    def list_checkpoints(self, book_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.continue_chapter_workflow_instance.list_checkpoints(book_id)
+
+    def delete_checkpoint(self, thread_id: str) -> bool:
+        return self.continue_chapter_workflow_instance.delete_checkpoint(thread_id)
+
+    def continue_from_checkpoint(self, thread_id: str, inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """从 checkpoint 继续运行工作流"""
+        return self.continue_chapter_workflow_instance.continue_from_checkpoint(thread_id, inputs)
+
     def export_workflow_diagram(self, workflow_type: str = 'continue_chapter', output_path: str = None):
-        """导出工作流图
-
-        Args:
-            workflow_type: 工作流类型 ('create_book', 'continue_chapter', 'update_outline', 'update_chapter')
-            output_path: 输出文件路径，默认为 None 则返回图片数据
-
-        Returns:
-            如果 output_path 为 None，返回 Mermaid 图表定义字符串
-        """
         workflow_map = {
             'create_book': self.create_book_workflow,
             'continue_chapter': self.continue_chapter_workflow,
@@ -758,11 +177,6 @@ class NovelWriteWorkflow:
             return workflow_mermaid.get(workflow_type, '')
 
     def print_workflow_structure(self, workflow_type: str = 'continue_chapter'):
-        """打印工作流结构（文本形式）
-
-        Args:
-            workflow_type: 工作流类型
-        """
         workflow_structures = {
             'create_book': {
                 'name': '创建书籍',
@@ -826,4 +240,3 @@ class NovelWriteWorkflow:
             print("  7. handle_error: 处理错误")
 
         print('='*60 + "\n")
-
