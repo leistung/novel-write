@@ -283,11 +283,6 @@ export async function startRewriteChapter(params: {
   return data;
 }
 
-export async function getWorkflowStatus(workflowId: string) {
-  const { data } = await api.get(`/workflows/${workflowId}/status`);
-  return data;
-}
-
 export async function getWorkflowNodes(workflowId: string) {
   const { data } = await api.get(`/workflows/${workflowId}/nodes`);
   return data;
@@ -303,14 +298,42 @@ export async function retryNode(workflowId: string, nodeId: string) {
   return data;
 }
 
-export async function pauseWorkflow(workflowId: string) {
-  const { data } = await api.post(`/workflows/${workflowId}/pause`);
+// ========== 大纲 API ==========
+
+export async function getOutlineFiles(bookId: number) {
+  const { data } = await api.get(`/books/${bookId}/outline`);
   return data;
 }
 
-export async function resumeWorkflow(workflowId: string, fromNodeId?: string) {
-  const params = fromNodeId ? { params: { from_node_id: fromNodeId } } : {};
-  const { data } = await api.post(`/workflows/${workflowId}/resume`, null, params);
+export async function getOutlineContent(bookId: number, key: string) {
+  const { data } = await api.get(`/books/${bookId}/outline`, { params: { key } });
+  return data;
+}
+
+export async function updateOutlineFile(bookId: number, key: string, content: string) {
+  const { data } = await api.put(`/books/${bookId}/outline`, { key, content });
+  return data;
+}
+
+export async function getBookState(bookId: number) {
+  const { data } = await api.get(`/books/${bookId}/state`);
+  return data;
+}
+
+// ========== Workflow Control API ==========
+
+export async function pauseWorkflow(workflowId: string) {
+  const { data } = await api.post(`/workflow/pause?workflow_id=${workflowId}`);
+  return data;
+}
+
+export async function resumeWorkflow(workflowId: string) {
+  const { data } = await api.post(`/workflow/resume?workflow_id=${workflowId}`);
+  return data;
+}
+
+export async function getWorkflowStatus(workflowId: string) {
+  const { data } = await api.get(`/workflow/status?workflow_id=${workflowId}`);
   return data;
 }
 

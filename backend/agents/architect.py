@@ -390,7 +390,78 @@ class ArchitectAgent(BaseAgent):
         return "normal"
     
     def _parse_foundation_output(self, content: str) -> Dict[str, str]:
-        """【Private】解析基础设定输出"""
+        """【Private】解析基础设定输出，支持 JSON 和 SECTION 两种格式"""
+        import json
+        import re
+        
+        # 尝试 JSON 格式解析（prompt 模板要求 JSON 输出）
+        json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1))
+                # 将 JSON 字段映射到系统期望的字段
+                result = {}
+                
+                # story_bible: 世界观 + 设定
+                setting = data.get("setting", {})
+                world_parts = []
+                if setting.get("era"):
+                    world_parts.append(f"时代背景：{setting['era']}")
+                if setting.get("location"):
+                    world_parts.append(f"主要地点：{setting['location']}")
+                if setting.get("rules"):
+                    world_parts.append("世界规则：\n" + "\n".join(f"- {r}" for r in setting["rules"]))
+                result["story_bible"] = "\n\n".join(world_parts) if world_parts else ""
+                
+                # 补充 synopsis 到 story_bible
+                if data.get("synopsis"):
+                    result["story_bible"] = f"## 故事梗概\n{data['synopsis']}\n\n" + result["story_bible"]
+                if data.get("logline"):
+                    result["story_bible"] = f"## 一句话简介\n{data['logline']}\n\n" + result["story_bible"]
+                
+                # character_matrix: 角色设定
+                characters = data.get("characters", [])
+                if characters:
+                    char_lines = []
+                    for c in characters:
+                        char_lines.append(f"### {c.get('name', '未知')}（{c.get('role', '未定')}）")
+                        if c.get("personality"):
+                            char_lines.append(f"性格：{c['personality']}")
+                        if c.get("goals"):
+                            char_lines.append(f"目标：{'、'.join(c['goals'])}")
+                        char_lines.append("")
+                    result["character_matrix"] = "\n".join(char_lines)
+                else:
+                    result["character_matrix"] = ""
+                
+                # volume_outline: 幕结构/主线剧情
+                acts = data.get("acts", [])
+                if acts:
+                    act_lines = []
+                    for a in acts:
+                        act_lines.append(f"## 第{a.get('act_number', '?')}幕：{a.get('title', '')}")
+                        if a.get("summary"):
+                            act_lines.append(a["summary"])
+                        if a.get("key_events"):
+                            act_lines.append("关键事件：")
+                            for e in a["key_events"]:
+                                act_lines.append(f"- {e}")
+                        act_lines.append("")
+                    result["volume_outline"] = "\n".join(act_lines)
+                else:
+                    result["volume_outline"] = ""
+                
+                # 其他字段留空（当前 prompt 不生成这些）
+                result["book_rules"] = ""
+                result["current_state"] = ""
+                result["pending_hooks"] = ""
+                result["emotional_arcs"] = ""
+                
+                return result
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass  # JSON 解析失败，尝试 SECTION 格式
+        
+        # 回退到 SECTION 格式解析
         sections = {}
         current_section = None
         current_content = []

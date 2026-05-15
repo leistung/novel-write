@@ -47,6 +47,7 @@ const AppLayout: React.FC = () => {
     if (location.pathname === '/') return { title: '工作台', desc: '管理和创作你的小说项目' };
     if (location.pathname === '/books') return { title: '我的书籍', desc: '查看和管理你的所有书籍' };
     if (location.pathname === '/create') return { title: '创建新书', desc: '填写信息创建新的小说项目' };
+    if (location.pathname.startsWith('/book/') && location.pathname.includes('/outline')) return { title: '大纲总览', desc: '查看和管理书籍大纲' };
     if (location.pathname.startsWith('/book/')) return { title: '书籍详情', desc: '查看和管理书籍内容' };
     if (location.pathname === '/help') return { title: '帮助中心', desc: '查看使用文档和常见问题' };
     if (location.pathname === '/settings') return { title: '设置', desc: '配置应用偏好' };

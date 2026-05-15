@@ -286,7 +286,7 @@ const WorkflowPanel: React.FC = () => {
     if (!workflowId) return;
     try {
       setActionLoading(true);
-      await resumeWorkflow(workflowId, selectedNodeId || undefined);
+      await resumeWorkflow(workflowId);
       message.success('工作流已继续');
       loadWorkflowStatus();
     } catch (err: unknown) {

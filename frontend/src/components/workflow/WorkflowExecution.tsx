@@ -15,11 +15,14 @@ import {
   FullscreenExitOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
+  PauseCircleOutlined,
+  PlayCircleFilled,
 } from '@ant-design/icons';
 import WorkflowVisualizer from './WorkflowVisualizer';
 import NodeDetailPanel from './NodeDetailPanel';
 import StreamingOutput from './StreamingOutput';
 import type { Workflow, WorkflowNode, WorkflowSSEEvent, NodeStatus } from '../../types/workflow';
+import { pauseWorkflow, resumeWorkflow } from '../../services/api';
 
 const { TextArea } = Input;
 
@@ -63,6 +66,7 @@ interface WorkflowExecutionProps {
   keepPlot?: boolean;
   onComplete?: () => void;
   onError?: (error: string) => void;
+  onClose?: () => void;
 }
 
 // ==================== 主组件 ====================
@@ -77,12 +81,16 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
   keepPlot: initialKeepPlot = true,
   onComplete,
   onError,
+  onClose,
 }) => {
   // 工作流状态
   const [workflow, setWorkflow] = useState<Workflow>(() => createInitialWorkflow(type));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [canPause, setCanPause] = useState(false);
   
   // 设置参数
   const [startChapter, setStartChapter] = useState(initialStartChapter);
@@ -98,7 +106,7 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
   // SSE 连接
   const eventSourceRef = useRef<EventSource | null>(null);
   const nodeContentRef = useRef<Record<string, string>>({});
-  const heartbeatTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMessageTimeRef = useRef<number>(0);
   const reconnectAttemptsRef = useRef<number>(0);
   const MAX_RECONNECT_ATTEMPTS = 3;
@@ -124,6 +132,14 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
           newWorkflow.nodes = [];
           newWorkflow.streamingContent = '';
           nodeContentRef.current = {};
+          // 使用后端返回的 workflow ID
+          if (event.workflowId) {
+            newWorkflow.id = event.workflowId;
+          }
+          // 检查工作流是否支持暂停
+          if (event.canPause) {
+            setCanPause(true);
+          }
           break;
 
         case 'node_start':
@@ -350,6 +366,9 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
   const start = () => {
     reconnectAttemptsRef.current = 0;
     setIsRunning(true);
+    setIsPaused(false);
+    setIsPausing(false);
+    setCanPause(false);
     setWorkflow(createInitialWorkflow(type));
     setSelectedNodeId(null);
     connectSSE();
@@ -364,8 +383,42 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
     }
     setIsRunning(false);
     setIsReconnecting(false);
+    setIsPaused(false);
+    setCanPause(false);
     setWorkflow(prev => ({ ...prev, status: 'error' }));
     message.warning('工作流已停止');
+  };
+
+  // 暂停工作流
+  const handlePause = async () => {
+    if (!workflow.id) return;
+    
+    setIsPausing(true);
+    try {
+      await pauseWorkflow(workflow.id);
+      setIsPaused(true);
+      setIsPausing(false);
+      message.info('工作流将在当前节点完成后暂停');
+    } catch (error) {
+      setIsPausing(false);
+      message.error('暂停失败');
+    }
+  };
+
+  // 继续工作流
+  const handleResume = async () => {
+    if (!workflow.id) return;
+    
+    setIsPausing(true);
+    try {
+      await resumeWorkflow(workflow.id);
+      setIsPaused(false);
+      setIsPausing(false);
+      message.success('工作流已恢复');
+    } catch (error) {
+      setIsPausing(false);
+      message.error('继续失败');
+    }
   };
 
   // 清理
@@ -382,7 +435,11 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
 
   const statusConfig = {
     idle: { color: colors.textSecondary, bg: 'rgba(148,163,184,0.1)', text: '待执行' },
-    running: { color: colors.primary, bg: 'rgba(99,102,241,0.15)', text: isReconnecting ? '重连中...' : '执行中' },
+    running: { 
+      color: isPaused ? colors.warning : colors.primary, 
+      bg: isPaused ? 'rgba(245,158,11,0.15)' : 'rgba(99,102,241,0.15)', 
+      text: isPaused ? '已暂停' : (isReconnecting ? '重连中...' : '执行中') 
+    },
     completed: { color: colors.success, bg: 'rgba(16,185,129,0.15)', text: '已完成' },
     error: { color: colors.error, bg: 'rgba(239,68,68,0.15)', text: '出错' },
     paused: { color: colors.warning, bg: 'rgba(245,158,11,0.15)', text: '已暂停' },
@@ -459,15 +516,50 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
               开始执行
             </Button>
           ) : (
-            <Button
-              danger
-              icon={<StopOutlined />}
-              onClick={stop}
-              loading={isReconnecting}
-              style={{ height: 36, borderRadius: 8 }}
-            >
-              {isReconnecting ? '重连中...' : '停止'}
-            </Button>
+            <>
+              {/* 暂停/继续按钮 */}
+              {canPause && (
+                isPaused ? (
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleFilled />}
+                    onClick={handleResume}
+                    loading={isPausing}
+                    style={{
+                      height: 36,
+                      borderRadius: 8,
+                      background: colors.success,
+                      border: 'none',
+                    }}
+                  >
+                    继续
+                  </Button>
+                ) : (
+                  <Button
+                    icon={<PauseCircleOutlined />}
+                    onClick={handlePause}
+                    loading={isPausing}
+                    style={{
+                      height: 36,
+                      borderRadius: 8,
+                      borderColor: colors.warning,
+                      color: colors.warning,
+                    }}
+                  >
+                    暂停
+                  </Button>
+                )
+              )}
+              <Button
+                danger
+                icon={<StopOutlined />}
+                onClick={stop}
+                loading={isReconnecting}
+                style={{ height: 36, borderRadius: 8 }}
+              >
+                {isReconnecting ? '重连中...' : '停止'}
+              </Button>
+            </>
           )}
           <Button
             icon={<SettingOutlined />}
@@ -479,6 +571,16 @@ const WorkflowExecution: React.FC<WorkflowExecutionProps> = ({
             onClick={() => setIsFullscreen(!isFullscreen)}
             style={{ height: 36, borderRadius: 8, borderColor: colors.border }}
           />
+          {/* 工作流完成后显示关闭按钮 */}
+          {(workflow.status === 'completed' || workflow.status === 'error') && onClose && (
+            <Button
+              icon={<CloseOutlined />}
+              onClick={onClose}
+              style={{ height: 36, borderRadius: 8, borderColor: colors.border }}
+            >
+              关闭
+            </Button>
+          )}
           {isFullscreen && (
             <Button
               icon={<CloseOutlined />}

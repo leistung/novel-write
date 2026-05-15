@@ -67,11 +67,25 @@ class WorkflowEngine:
                     "emotional_arcs": data.get("emotional_arcs", "")
                 })
                 
-                # 保存到store
+                # 保存到 state 目录
                 for key in ["story_bible", "volume_outline", "book_rules", 
                            "current_state", "pending_hooks", "character_matrix", "emotional_arcs"]:
                     if data.get(key):
                         await store_manager.save_state_file(book_id, key, data[key])
+                
+                # 将生成内容映射并保存到 outline/ 目录的标准文件
+                outline_mapping = {
+                    "01-worldview.md": data.get("story_bible", ""),       # 世界观设定
+                    "02-characters.md": data.get("character_matrix", ""),  # 角色设定
+                    "03-plot.md": data.get("volume_outline", ""),          # 主线剧情
+                    "04-arcs.md": data.get("emotional_arcs", ""),          # 情感弧线
+                    "05-hooks.md": data.get("pending_hooks", ""),          # 伏笔设计
+                    "08-outline.md": data.get("volume_outline", ""),       # 卷纲大纲
+                    "09-rules.md": data.get("book_rules", ""),             # 创作规则
+                }
+                for filename, file_content in outline_mapping.items():
+                    if file_content and file_content.strip():
+                        await store_manager.save_outline_file(book_id, filename, file_content)
             
             # 完成工作流
             await checkpoint_manager.complete_workflow(
@@ -363,7 +377,7 @@ class WorkflowEngine:
 
             # 将 protected_chapter 之后的章节标记为需要重写
             from db.crud import get_chapters_by_book
-            all_chapters = await get_chapters_by_book(db, book_id)
+            all_chapters, _ = await get_chapters_by_book(db, book_id)
             chapters_to_rewrite = [c for c in all_chapters if c.chapter_number > protected_chapter]
             for chapter in chapters_to_rewrite:
                 await update_chapter(db, chapter.id, {"status": "needs_rewrite"})
@@ -406,7 +420,7 @@ class WorkflowEngine:
 
             # 获取所有已写章节
             from db.crud import get_chapters_by_book
-            all_chapters = await get_chapters_by_book(db, book_id)
+            all_chapters, _ = await get_chapters_by_book(db, book_id)
             
             if not all_chapters:
                 # 没有章节，直接完成

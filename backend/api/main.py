@@ -15,7 +15,7 @@ import uuid
 
 from config.settings import get_settings
 from db.database import init_db, close_db
-from api.routes import books, chapters, workflows, checkpoints, skills, websocket, book_detail, orchestrator, stream
+from api.routes import books, chapters, workflows, checkpoints, skills, websocket, book_detail, orchestrator, stream, workflow_control
 from core.exceptions import register_exception_handlers
 from core.response import success_response
 
@@ -80,6 +80,7 @@ app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 app.include_router(book_detail.router, prefix="/api/v1", tags=["book-detail"])
 app.include_router(orchestrator.router, prefix="/api/v1/orchestrator", tags=["orchestrator"])
 app.include_router(stream.router, prefix="/api/v1", tags=["stream"])
+app.include_router(workflow_control.router, prefix="/api/v1", tags=["workflow-control"])
 
 
 @app.get("/")

@@ -12,6 +12,7 @@ const WorkflowPanel = lazy(() => import('./pages/WorkflowPanel'));
 const CreateBook = lazy(() => import('./pages/CreateBook'));
 const Help = lazy(() => import('./pages/Help'));
 const Settings = lazy(() => import('./pages/Settings'));
+const OutlineView = lazy(() => import('./pages/OutlineView'));
 
 // Dify 风格主题 - 深色专业主题
 const theme = {
@@ -71,6 +72,7 @@ function App() {
             <Route path="/books" element={<Books />} />
             <Route path="/create" element={<CreateBook />} />
             <Route path="/book/:bookId" element={<BookDetail />} />
+            <Route path="/book/:bookId/outline" element={<OutlineView />} />
             <Route path="/book/:bookId/chapter/:chapterNum" element={<ChapterReader />} />
             <Route path="/book/:bookId/workflow/:workflowId" element={<WorkflowPanel />} />
             <Route path="/help" element={<Help />} />

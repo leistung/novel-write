@@ -45,6 +45,13 @@ class BookResponse(BaseModel):
     target_chapters: int
     outline: str
     created_at: str
+    # 工作流生成的状态字段
+    story_bible: str = ""
+    volume_outline: str = ""
+    current_state: str = ""
+    pending_hooks: str = ""
+    character_matrix: str = ""
+    emotional_arcs: str = ""
     
     class Config:
         from_attributes = True
@@ -164,6 +171,13 @@ async def get_book_detail(
         "target_chapters": book.target_chapters,
         "outline": book.outline,
         "created_at": book.created_at.isoformat() if book.created_at else "",
+        # 工作流生成的状态字段
+        "story_bible": book.story_bible or "",
+        "volume_outline": book.volume_outline or "",
+        "current_state": book.current_state or "",
+        "pending_hooks": book.pending_hooks or "",
+        "character_matrix": book.character_matrix or "",
+        "emotional_arcs": book.emotional_arcs or "",
         "store_structure": structure
     }
 

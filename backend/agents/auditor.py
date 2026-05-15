@@ -116,7 +116,7 @@ class AuditorAgent(BaseAgent):
             return self.failure("audit_book", f"书籍不存在: {book_id}")
         
         # 获取所有章节
-        chapters = await get_chapters_by_book(db, book_id)
+        chapters, _ = await get_chapters_by_book(db, book_id)
         
         system_prompt = self._build_system_prompt(self._get_book_audit_system_prompt(), book.genre)
         user_prompt = self._get_book_audit_user_prompt(

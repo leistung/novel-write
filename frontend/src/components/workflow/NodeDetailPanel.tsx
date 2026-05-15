@@ -31,6 +31,21 @@ interface NodeDetailPanelProps {
 const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node }) => {
   const [copied, setCopied] = useState<string | null>(null);
 
+  // 如果节点为 null，显示空状态
+  if (!node) {
+    return (
+      <div style={{ 
+        height: '100%', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        color: colors.textSecondary 
+      }}>
+        <Empty description="选择一个节点查看详情" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      </div>
+    );
+  }
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopied(key);

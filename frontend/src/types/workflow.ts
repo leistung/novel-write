@@ -74,11 +74,13 @@ export interface Workflow {
 
 // SSE 事件类型
 export interface WorkflowSSEEvent {
-  type: 'workflow_start' | 'node_start' | 'node_token' | 'node_end' | 'node_error' | 'workflow_end' | 'progress' | 'error';
+  type: 'workflow_start' | 'node_start' | 'node_token' | 'node_end' | 'node_error' | 'workflow_end' | 'progress' | 'error' | 'info' | 'warning';
   
   // workflow_start / workflow_end
   workflowId?: string;
   workflowName?: string;
+  canPause?: boolean;  // 工作流是否支持暂停
+  reason?: string;     // workflow_end 的原因
   
   // node_* 事件
   nodeId?: string;
@@ -96,9 +98,12 @@ export interface WorkflowSSEEvent {
   tokenUsage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
   duration?: number;
   
-  // node_error
+  // node_error / error
   error?: string;
   
   // progress
   progress?: number;
+  
+  // info / warning / message
+  message?: string;
 }

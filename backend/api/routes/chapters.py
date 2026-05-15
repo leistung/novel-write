@@ -46,7 +46,7 @@ async def list_chapters(
     db: AsyncSession = Depends(get_db)
 ):
     """获取书籍的所有章节"""
-    chapters = await get_chapters_by_book(db, book_id, skip=skip, limit=limit)
+    chapters, _ = await get_chapters_by_book(db, book_id, skip=skip, limit=limit)
     return [
         {
             "id": ch.id,

@@ -17,7 +17,14 @@ def count_chinese_chars(text: str) -> int:
 
 # ========== 字段白名单 ==========
 
-UPDATABLE_BOOK_FIELDS = {"title", "genre", "platform", "chapter_words", "target_chapters", "outline", "status"}
+UPDATABLE_BOOK_FIELDS = {
+    # 基础信息
+    "title", "genre", "platform", "chapter_words", "target_chapters", "outline", "status",
+    # 工作流生成的状态字段
+    "story_bible", "volume_outline", "book_rules", "current_state",
+    "pending_hooks", "character_matrix", "emotional_arcs",
+    "subplot_board", "chapter_summaries", "writing_style",
+}
 
 
 # ========== Book CRUD ==========

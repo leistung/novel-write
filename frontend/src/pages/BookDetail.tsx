@@ -435,13 +435,22 @@ const BookDetail: React.FC = () => {
           }}
           styles={{ body: { padding: 24 } }}
         >
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ color: colors.text, fontSize: 16, fontWeight: 600, margin: 0 }}>
               <FileTextOutlined style={{ marginRight: 8, color: colors.primaryLight }} />
               大纲
             </h3>
+            <Button
+              type="link"
+              size="small"
+              icon={<ApartmentOutlined />}
+              onClick={() => navigate(`/book/${numericBookId}/outline`)}
+              style={{ color: colors.primaryLight, padding: 0, fontSize: 13 }}
+            >
+              查看完整大纲
+            </Button>
           </div>
-          {book.outline ? (
+          {book.outline || book.story_bible || book.volume_outline ? (
             <div
               style={{
                 background: colors.bg,
@@ -456,7 +465,33 @@ const BookDetail: React.FC = () => {
                 wordBreak: 'break-all',
               }}
             >
-              {book.outline}
+              {book.story_bible ? (
+                <>
+                  <div style={{ color: colors.primaryLight, fontWeight: 600, marginBottom: 8, fontSize: 15 }}>
+                    📖 世界观设定（Story Bible）
+                  </div>
+                  <div style={{ marginBottom: 16 }}>{book.story_bible}</div>
+                </>
+              ) : null}
+              {book.character_matrix ? (
+                <>
+                  <div style={{ color: colors.primaryLight, fontWeight: 600, marginBottom: 8, fontSize: 15 }}>
+                    👥 角色设定
+                  </div>
+                  <div style={{ marginBottom: 16 }}>{book.character_matrix}</div>
+                </>
+              ) : null}
+              {book.volume_outline ? (
+                <>
+                  <div style={{ color: colors.primaryLight, fontWeight: 600, marginBottom: 8, fontSize: 15 }}>
+                    📋 卷纲大纲
+                  </div>
+                  <div style={{ marginBottom: 16 }}>{book.volume_outline}</div>
+                </>
+              ) : null}
+              {!book.story_bible && !book.character_matrix && !book.volume_outline && book.outline && (
+                <>{book.outline}</>
+              )}
             </div>
           ) : (
             <Empty
@@ -584,12 +619,12 @@ const BookDetail: React.FC = () => {
               message.success('工作流执行完成');
               loadBook();
               loadChapters();
-              setWorkflowType(null);
+              // 不再自动关闭工作流组件，让用户可以查看执行结果
             }}
             onError={(error) => {
               message.error(error);
-              setWorkflowType(null);
             }}
+            onClose={() => setWorkflowType(null)}
           />
         </div>
       )}

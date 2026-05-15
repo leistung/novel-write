@@ -10,6 +10,20 @@ export interface Book {
   writing_style: string;
   created_at: string;
   updated_at: string;
+  // 工作流生成的状态字段
+  story_bible?: string;
+  volume_outline?: string;
+  current_state?: string;
+  pending_hooks?: string;
+  character_matrix?: string;
+  emotional_arcs?: string;
+  store_structure?: {
+    exists: boolean;
+    outline_files: string[];
+    chapter_files: string[];
+    state_files: string[];
+    locks: string[];
+  };
 }
 
 /** 章节类型 */

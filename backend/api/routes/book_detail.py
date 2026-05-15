@@ -144,7 +144,7 @@ async def get_book_statistics(
     if not book:
         raise HTTPException(status_code=404, detail="书籍不存在")
     
-    chapters = await get_chapters_by_book(db, book_id)
+    chapters, _ = await get_chapters_by_book(db, book_id)
     
     total_words = sum(ch.word_count for ch in chapters)
     total_chapters = len(chapters)

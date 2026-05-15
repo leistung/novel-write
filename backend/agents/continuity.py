@@ -120,7 +120,7 @@ class ContinuityAuditor(BaseAgent):
             return self.failure("check_character_consistency", f"书籍不存在: {book_id}")
         
         # 获取包含该角色的章节
-        chapters = await get_chapters_by_book(db, book_id)
+        chapters, _ = await get_chapters_by_book(db, book_id)
         character_appearances = []
         
         for ch in chapters:
