@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE 流式测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        h1 {
+            color: #8b5cf6;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .panel h2 {
+            margin-top: 0;
+            color: #a5b4fc;
+        }
+        button {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.danger {
+            background: #ef4444;
+        }
+        .output {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .token {
+            color: #a5b4fc;
+        }
+        .event-start {
+            color: #10b981;
+            font-weight: bold;
+        }
+        .event-end {
+            color: #3b82f6;
+            font-weight: bold;
+        }
+        .event-error {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .progress {
+            background: #334155;
+            border-radius: 4px;
+            height: 8px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .status.running {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+        }
+        .status.completed {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            width: 100%;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 NovelWrite SSE 流式测试</h1>
+    <p>测试后端 LLM 流式输出功能</p>
+
+    <div class="container">
+        <!-- 生成大纲 -->
+        <div class="panel">
+            <h2>📚 生成大纲</h2>
+            <input type="number" id="outlineBookId" placeholder="书籍 ID" value="1">
+            <div>
+                <button onclick="startOutline()">开始生成</button>
+                <button class="danger" onclick="stopOutline()">停止</button>
+            </div>
+            <div class="status" id="outlineStatus">就绪</div>
+            <div class="progress">
+                <div class="progress-bar" id="outlineProgress" style="width: 0%"></div>
+            </div>
+            <div class="output" id="outlineOutput">等待开始...</div>
+        </div>
+
+        <!-- 续写章节 -->
+        <div class="panel">
+            <h2>✍️ 续写章节</h2>
+            <input type="number" id="continueBookId" placeholder="书籍 ID" value="1">
+            <input type="number" id="startChapter" placeholder="起始章节" value="1">
+            <input type="number" id="chapterCount" placeholder="续写章数" value="1">
+            <div>
+                <button onclick="startContinue()">开始续写</button>
+                <button class="danger" onclick="stopContinue()">停止</button>
+            </div>
+            <div class="status" id="continueStatus">就绪</div>
+            <div class="progress">
+                <div class="progress-bar" id="continueProgress" style="width: 0%"></div>
+            </div>
+            <div class="output" id="continueOutput">等待开始...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let outlineES = null;
+        let continueES = null;
+
+        // ========== 生成大纲 ==========
+        function startOutline() {
+            const bookId = document.getElementById('outlineBookId').value;
+            const output = document.getElementById('outlineOutput');
+            const status = document.getElementById('outlineStatus');
+            const progress = document.getElementById('outlineProgress');
+
+            output.innerHTML = '';
+            status.textContent = '连接中...';
+            status.className = 'status running';
+            progress.style.width = '0%';
+
+            if (outlineES) outlineES.close();
+
+            outlineES = new EventSource(`${API_BASE}/stream/generate-outline?book_id=${bookId}`);
+
+            outlineES.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    console.log('[Outline]', data);
+
+                    switch (data.type) {
+                        case 'start':
+                            status.textContent = `正在执行: ${data.node}`;
+                            output.innerHTML += `<div class="event-start">▶ ${data.node}</div>`;
+                            break;
+
+                        case 'token':
+                            output.innerHTML += `<span class="token">${escapeHtml(data.text)}</span>`;
+                            output.scrollTop = output.scrollHeight;
+                            break;
+
+                        case 'node_end':
+                            output.innerHTML += `<div class="event-end">✓ ${data.node} 完成</div>`;
+                            break;
+
+                        case 'progress':
+                            progress.style.width = `${data.value}%`;
+                            break;
+
+                        case 'done':
+                            status.textContent = '完成';
+                            status.className = 'status completed';
+                            progress.style.width = '100%';
+                            outlineES.close();
+                            break;
+
+                        case 'error':
+                            status.textContent = `错误: ${data.message}`;
+                            status.className = 'status error';
+                            output.innerHTML += `<div class="event-error">✗ 错误: ${escapeHtml(data.message)}</div>`;
+                            outlineES.close();
+                            break;
+                    }
+                } catch (err) {
+                    console.error('解析失败:', e.data);
+                }
+            };
+
+            outlineES.onerror = (e) => {
+                status.textContent = '连接错误';
+                status.className = 'status error';
+                outlineES.close();
+            };
+        }
+
+        function stopOutline() {
+            if (outlineES) {
+                outlineES.close();
+                outlineES = null;
+            }
+            document.getElementById('outlineStatus').textContent = '已停止';
+            document.getElementById('outlineStatus').className = 'status';
+        }
+
+        // ========== 续写章节 ==========
+        function startContinue() {
+            const bookId = document.getElementById('continueBookId').value;
+            const startChapter = document.getElementById('startChapter').value;
+            const count = document.getElementById('chapterCount').value;
+            const output = document.getElementById('continueOutput');
+            const status = document.getElementById('continueStatus');
+            const progress = document.getElementById('continueProgress');
+
+            output.innerHTML = '';
+            status.textContent = '连接中...';
+            status.className = 'status running';
+            progress.style.width = '0%';
+
+            if (continueES) continueES.close();
+
+            continueES = new EventSource(
+                `${API_BASE}/stream/continue-chapters?book_id=${bookId}&start_chapter=${startChapter}&count=${count}`
+            );
+
+            continueES.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    console.log('[Continue]', data);
+
+                    switch (data.type) {
+                        case 'start':
+                            status.textContent = `正在执行: ${data.node}`;
+                            output.innerHTML += `<div class="event-start">▶ ${data.node}</div>`;
+                            break;
+
+                        case 'token':
+                            output.innerHTML += `<span class="token">${escapeHtml(data.text)}</span>`;
+                            output.scrollTop = output.scrollHeight;
+                            break;
+
+                        case 'node_end':
+                            output.innerHTML += `<div class="event-end">✓ ${data.node} 完成</div>`;
+                            if (data.data) {
+                                output.innerHTML += `<div style="color: #64748b; font-size: 12px; margin: 5px 0;">字数: ${data.data.word_count}</div>`;
+                            }
+                            break;
+
+                        case 'progress':
+                            progress.style.width = `${data.value}%`;
+                            break;
+
+                        case 'done':
+                            status.textContent = '完成';
+                            status.className = 'status completed';
+                            progress.style.width = '100%';
+                            continueES.close();
+                            break;
+
+                        case 'error':
+                            status.textContent = `错误: ${data.message}`;
+                            status.className = 'status error';
+                            output.innerHTML += `<div class="event-error">✗ 错误: ${escapeHtml(data.message)}</div>`;
+                            continueES.close();
+                            break;
+                    }
+                } catch (err) {
+                    console.error('解析失败:', e.data);
+                }
+            };
+
+            continueES.onerror = (e) => {
+                status.textContent = '连接错误';
+                status.className = 'status error';
+                continueES.close();
+            };
+        }
+
+        function stopContinue() {
+            if (continueES) {
+                continueES.close();
+                continueES = null;
+            }
+            document.getElementById('continueStatus').textContent = '已停止';
+            document.getElementById('continueStatus').className = 'status';
+        }
+
+        // 工具函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

@@ -1,469 +1,502 @@
-# novel-write - AI 小说写作助手
+# NovelWrite - AI驱动的网络小说创作系统
 
-一个基于LangChain和LangGraph的智能小说写作系统，通过多Agent协作完成小说的创作、续写、重写和审核等任务。
+<div align="center">
 
-## 📋 项目概述
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.12-green.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109-teal.svg)
+![React](https://img.shields.io/badge/React-18.2-blue.svg)
 
-novel-write 是一个功能强大的AI小说写作助手，它利用LangChain和LangGraph框架实现多个专业Agent（架构师、写手、连续性检查器、审核编辑）的协同工作，帮助用户创建和管理小说。系统采用SQLAlchemy ORM进行数据库管理，支持多种工作流，包括创建新书、续写下一章、重写章节、从指定章节开始重写以及修改故事大纲等。
+**一个企业级的AI小说创作平台，支持多种题材、智能大纲生成、章节续写、内容审核等功能**
 
-## 🚀 核心功能
+</div>
 
-### 1. 多Agent协作
-- **架构师 (Architect)**：负责根据大纲的演进，制定本章节内容，发给写手
-- **写手 (Writer)**：负责根据当前状态，大纲和前面的章节，判断大纲是否合理，续写下一章
-- **连续性检查 (Consistency)**：检查最新章节，如果是重写需要检查前后章节，和之前章节的连贯性
-- **审核编辑 (Author)**：负责打分，从连贯性等维度进行评价
+---
 
-### 2. 工作流设计
-- **创建新书**：根据输入的标题、类型、参考资料、参考文笔，生成各个md文件
-- **续写1章**：可输入提示词增加人物，经过架构师规划、写手生成、检查器检查、审核评分等步骤，支持打回重写（最多3次）
-- **重写1章**：参考各个md不动，只修改章节内容
-- **从第n章开始重写**：n章后的内容全删除
-- **修改故事大纲**：分析大纲变化对现有章节的影响，给出建议
+## 📖 目录
 
-### 3. 打回重试机制（新增）
-续写章节工作流支持完整的打回重试机制：
-1. **Architect规划** → Writer检查大纲是否合理 → 不合理打回（最多3次）
-2. **Writer创作** → Checker检查连续性 → 问题打回重写（最多3次）
-3. **Author评分** → 评分<80分打回Architect重新规划（最多3次）
-4. **全部通过** → Architect更新状态文件
+- [项目概述](#项目概述)
+- [系统架构](#系统架构)
+- [技术栈](#技术栈)
+- [核心模块](#核心模块)
+- [快速开始](#快速开始)
+- [API文档](#api文档)
+- [配置说明](#配置说明)
+- [开发指南](#开发指南)
 
-### 4. 数据管理
-- **数据库存储**：使用SQLAlchemy ORM管理书籍和章节数据
-- **文件系统存储**：保存小说的MD文件，包括静态设定和动态状态
-- **日志管理**：每日生成Agent日志和工作流日志
+---
 
-## 🖼️ 界面预览
+## 项目概述
 
-### 我的书籍
-![我的书籍](assets/我的书籍.png)
+NovelWrite 是一个基于大语言模型（LLM）的网络小说创作辅助系统，旨在帮助作者：
 
-### 书籍主页
-![书籍主页](assets/书籍主页.png)
+- 🎯 **智能大纲生成** - 根据题材和创意自动生成世界观、人物设定、剧情大纲
+- ✍️ **章节续写** - 基于大纲和前文自动续写章节，保持剧情连贯性
+- 🔍 **内容审核** - 自动审核章节质量、检查剧情连续性
+- 📚 **题材专家** - 内置25种题材技能包（玄幻、仙侠、都市、科幻等）
+- 🔄 **工作流管理** - 支持断点续写、暂停恢复、进度追踪
 
-### 书籍设定
-![书籍设定](assets/书籍设定.png)
+---
 
-### 书籍大纲
-![书籍大纲](assets/书籍大纲.png)
+## 系统架构
 
-### 书籍章节
-![书籍章节](assets/书籍章节.png)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        前端 (React + Ant Design)                 │
+│                     http://localhost:5173                       │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      后端 (FastAPI)                              │
+│                     http://localhost:8000                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │  API     │  │ Workflow │  │  Agent   │  │  Prompts │        │
+│  │ Routes   │→ │ Engine   │→ │ System   │→ │ Templates│        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+└─────────────────────────────────────────────────────────────────┘
+        │                │                │
+        ▼                ▼                ▼
+┌───────────┐   ┌───────────┐   ┌───────────────────┐
+│ PostgreSQL│   │   Redis   │   │  LLM API          │
+│  数据库   │   │ 队列/缓存 │   │ OpenAI/Anthropic  │
+└───────────┘   └───────────┘   └───────────────────┘
+```
 
-### 书籍状态
-![书籍状态](assets/书籍状态.png)
+### 请求流程
 
-## 🔄 工作流流程图
+```
+用户请求 → API路由 → Celery异步任务 → 工作流引擎 → Agent执行 → LLM生成 → 结果返回
+                ↓
+         WebSocket实时推送进度
+```
 
-### 创建书籍流程
-![创建书籍工作流](assets/工作流图创建书籍.png)
+---
 
-### 续写下一章流程
-![续写下一章工作流](assets/工作流图续写下一章.png)
+## 技术栈
 
-### 修改大纲流程
-![修改大纲工作流](assets/工作流图修改大纲.png)
+### 后端
 
-### 修改章节流程
-![修改章节工作流](assets/工作流图修改章节.png)
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| FastAPI | 0.109 | Web框架 |
+| SQLAlchemy | 2.0 | ORM |
+| Celery | - | 异步任务队列 |
+| Redis | 7 | 缓存/消息队列 |
+| PostgreSQL | 15 | 主数据库 |
+| OpenAI SDK | 1.10 | LLM调用 |
+| ChromaDB | 0.4 | 向量数据库 |
+| Jinja2 | 3.1 | 模板渲染 |
 
-## 📁 小说参考MD文件
+### 前端
 
-### 静态设定文件
-- **story_bible**：小说设定，世界观，男女主角，修炼体系/都市体系，规则等
-- **volume_outline**：所有章节划分，几卷，每卷多少章，什么内容，大纲，所有支线等
-- **book_rules**：写作规则、禁止出现的内容、写作特点等
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| React | 18.2 | UI框架 |
+| TypeScript | 5.3 | 类型安全 |
+| Ant Design | 5.13 | UI组件库 |
+| Vite | 5.0 | 构建工具 |
+| Axios | 1.6 | HTTP客户端 |
 
-### 动态状态文件
-- **current_state**：当前状态，所处地点，涉及的人物，所处支线
-- **pending_hooks**：设定的钩子和伏笔，预计哪里填坑，当前状态是否填坑
-- **subplot_board**：支线进度
-- **emotional_arcs**：角色的情感状态，各个主角当前的情感状态，以及造成的原因
-- **character_matrix**：角色矩阵，各个角色的交集和关系
+---
 
-### 章节文件
-- **content**：每一章的内容
+## 核心模块
 
-## 🏗️ 项目结构
+### 1. Agent 系统 (`backend/agents/`)
+
+Agent 是系统的核心执行单元，每个 Agent 负责特定任务：
+
+```
+agents/
+├── base.py          # Agent基类，提供LLM调用和提示词渲染
+├── architect.py     # 架构师Agent - 大纲生成、章节规划、状态更新
+├── writer.py        # 写手Agent - 章节撰写、重写、大纲扩写
+├── auditor.py       # 审核Agent - 内容质量评分
+└── continuity.py    # 连续性Agent - 剧情连贯性检查
+```
+
+**Agent 职责划分**：
+
+| Agent | 职责 | 主要方法 |
+|-------|------|----------|
+| ArchitectAgent | 整体架构规划 | `generate_foundation`, `plan_chapter`, `analyze_outline_impact`, `update_book_state` |
+| WriterAgent | 内容创作 | `write_chapter`, `rewrite_chapter`, `expand_outline` |
+| AuditorAgent | 质量审核 | `audit_chapter`, `score_chapter` |
+| ContinuityAuditor | 连续性检查 | `check_continuity` |
+
+### 2. 提示词系统 (`backend/prompts/`)
+
+企业级提示词工程框架，支持：
+
+- **YAML模板** - 提示词与代码分离，易于维护
+- **Jinja2渲染** - 动态变量替换
+- **版本控制** - 支持多版本提示词管理
+- **输入净化** - 防止Prompt注入攻击
+- **输出验证** - JSON Schema验证
+
+```
+prompts/
+├── templates/           # YAML模板文件
+│   ├── architect/       # 架构师提示词
+│   │   ├── foundation.yaml
+│   │   ├── plan_chapter.yaml
+│   │   ├── analyze_impact.yaml
+│   │   └── update_state.yaml
+│   ├── writer/          # 写手提示词
+│   │   ├── chapter.yaml
+│   │   ├── rewrite.yaml
+│   │   └── expand_outline.yaml
+│   └── auditor/         # 审核提示词
+│       └── review.yaml
+├── registry/            # 提示词注册中心
+├── renderer/            # Jinja2渲染器
+├── security/            # 输入净化
+├── schemas/             # 输出验证
+└── loader.py            # 简化加载接口
+```
+
+**使用示例**：
+
+```python
+from prompts.loader import render_prompt
+
+system_prompt, user_prompt = render_prompt("architect/foundation", {
+    "genre": "玄幻",
+    "theme": "修仙"
+})
+```
+
+### 3. 工作流引擎 (`backend/workflow/`)
+
+协调多个 Agent 完成复杂任务：
+
+```
+workflow/
+└── engine.py           # 工作流引擎
+```
+
+**支持的工作流**：
+
+| 工作流 | 功能 | API端点 |
+|--------|------|---------|
+| `run_generate_outline` | 生成基础设定 | `POST /api/v1/workflows/generate-outline` |
+| `run_continue_chapters` | 批量续写章节 | `POST /api/v1/workflows/continue-chapters` |
+| `run_rewrite_chapter` | 重写单章 | `POST /api/v1/workflows/rewrite-chapter` |
+| `run_protect_and_update` | 保护章节更新大纲 | `POST /api/v1/workflows/protect-and-update` |
+| `run_extract_outline` | 从已有内容提取大纲 | `POST /api/v1/workflows/extract-outline` |
+| `run_expand_skill` | 扩写大纲为章节规划 | `POST /api/v1/workflows/expand-skill` |
+
+### 4. 题材技能包 (`skills/`)
+
+内置 25 种题材专家知识：
+
+```
+skills/
+├── xuanhuan-novelist/          # 玄幻
+├── xianxia-novelist/           # 仙侠
+├── wuxia-novelist/             # 武侠
+├── urban-novelist/             # 都市
+├── scifi-novelist/             # 科幻
+├── historical-novelist/        # 历史
+├── game-novelist/              # 游戏
+├── ancient-romance-novelist/   # 古代言情
+├── modern-romance-novelist/    # 现代言情
+└── ...                         # 更多题材
+```
+
+每个技能包包含：
+- 核心智模型（题材特征）
+- 表达DNA（文风指导）
+- 决策启发式（创作规则）
+
+### 5. 数据模型 (`backend/db/`)
+
+```
+db/
+├── models.py           # SQLAlchemy模型定义
+├── database.py         # 数据库连接管理
+└── crud.py             # CRUD操作
+```
+
+**核心数据表**：
+
+| 表名 | 说明 |
+|------|------|
+| `books` | 书籍主表 |
+| `chapters` | 章节表 |
+| `book_outlines` | 大纲版本表 |
+| `book_states` | 动态状态表 |
+| `story_hooks` | 伏笔追踪表 |
+| `characters` | 角色表 |
+| `workflow_executions` | 工作流执行记录 |
+| `workflow_nodes` | 节点执行记录 |
+| `checkpoints` | 检查点表 |
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.12+
+- Node.js 18+
+- PostgreSQL 15+ (或使用 Docker)
+- Redis 7+ (或使用 Docker)
+
+### 方式一：Docker 部署（推荐）
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/novel-write.git
+cd novel-write
+
+# 配置环境变量
+cp backend/.env.example backend/.env
+# 编辑 .env 填入 OPENAI_API_KEY
+
+# 启动所有服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f backend
+```
+
+访问：
+- 前端：http://localhost
+- 后端API：http://localhost:8000
+- API文档：http://localhost:8000/docs
+
+### 方式二：本地开发
+
+```bash
+# 后端
+cd backend
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env
+
+# 启动后端
+python run.py
+
+# 前端（新终端）
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## API文档
+
+### 核心接口
+
+#### 书籍管理
+
+```http
+# 创建书籍
+POST /api/v1/books
+{
+  "title": "我的玄幻小说",
+  "genre": "玄幻",
+  "platform": "起点",
+  "chapter_words": 3000,
+  "target_chapters": 100
+}
+
+# 获取书籍列表
+GET /api/v1/books
+
+# 获取书籍详情
+GET /api/v1/books/{book_id}
+```
+
+#### 工作流
+
+```http
+# 生成大纲
+POST /api/v1/workflows/generate-outline
+{
+  "book_id": 1
+}
+
+# 续写章节
+POST /api/v1/workflows/continue-chapters
+{
+  "book_id": 1,
+  "start_chapter": 1,
+  "count": 5,
+  "external_context": ""
+}
+
+# 重写章节
+POST /api/v1/workflows/rewrite-chapter
+{
+  "book_id": 1,
+  "chapter_num": 3,
+  "rewrite_requirements": "增加主角内心戏",
+  "keep_plot": true
+}
+
+# 查询工作流状态
+GET /api/v1/workflows/{workflow_id}/status
+
+# 暂停工作流
+POST /api/v1/workflows/{workflow_id}/pause
+
+# 恢复工作流
+POST /api/v1/workflows/{workflow_id}/resume
+```
+
+#### WebSocket 实时进度
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/workflow/{workflow_id}');
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('进度:', data.progress);
+};
+```
+
+---
+
+## 配置说明
+
+### 环境变量 (`backend/.env`)
+
+```bash
+# 应用配置
+APP_NAME=NovelWrite
+DEBUG=true
+LOG_LEVEL=DEBUG
+
+# 数据库
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/novel_write
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/0
+
+# LLM配置
+LLM_PROVIDER=openai
+LLM_API_KEY=sk-xxx
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o
+
+# 安全
+SECRET_KEY=your-secret-key
+```
+
+---
+
+## 开发指南
+
+### 项目结构
 
 ```
 novel-write/
-├── app.py              # 主应用文件，Streamlit前端界面
-├── requirements.txt    # 依赖文件
-├── .env                # 环境变量配置
-├── .env.example        # 环境变量示例
-├── README.md           # 项目说明
-├── asserts/            # 静态资源（图片）
-├── test/               # 测试脚本
-│   └── test_workflow.py          # 工作流测试脚本
-├── data/               # 数据目录
-│   └── book_X/         # 书籍数据，X为书籍ID
-│       ├── chapter_Y/  # 章节数据，Y为章节号
-│       ├── story_bible.md
-│       ├── volume_outline.md
-│       ├── book_rules.md
-│       ├── current_state.md
-│       ├── pending_hooks.md
-│       ├── subplot_board.md
-│       ├── emotional_arcs.md
-│       └── character_matrix.md
-├── logs/               # 日志文件
-│   ├── agent_YYYY-MM-DD.log      # Agent日志
-│   └── workflow_YYYY-MM-DD.log   # 工作流日志
-├── novel_write.db      # SQLite数据库文件
-└── src/                # 源代码
-    ├── agents/         # Agent实现
-    │   ├── base.py              # BaseAgent基类，使用LangChain
-    │   ├── architect.py         # 架构师Agent
-    │   ├── writer.py            # 写手Agent
-    │   ├── continuity.py        # 连续性检查器Agent
-    │   └── auditor.py           # 审核Agent
-    ├── db/              # 数据库管理
-    │   ├── models.py            # 数据库模型（Book, Chapter）
-    │   ├── crud.py              # CRUD操作
-    │   ├── config.py            # 数据库配置
-    │   └── init_db.py           # 数据库初始化
-    ├── llm/             # LLM客户端
-    │   └── provider.py          # LLM提供商
-    ├── prompts/         # 提示词管理
-    │   ├── architect.py         # 架构师提示词
-    │   ├── writer.py            # 写手提示词
-    │   ├── continuity.py        # 连续性检查器提示词
-    │   └── auditor.py           # 审核提示词
-    ├── utils/           # 工具类
-    │   ├── file_manager.py      # 文件管理，处理MD文件的读写
-    │   └── log_manager.py       # 日志管理，记录系统运行状态
-    └── workflow/        # 工作流管理
-        ├── workflow.py          # 工作流实现（使用LangGraph）
-        └── config.py            # 工作流配置
+├── backend/                # 后端代码
+│   ├── agents/             # Agent系统
+│   ├── api/                # FastAPI路由
+│   │   └── routes/         # 各模块路由
+│   ├── checkpoint/         # 检查点管理
+│   ├── config/             # 配置管理
+│   ├── core/               # 核心工具（异常、响应）
+│   ├── db/                 # 数据库模型和CRUD
+│   ├── llm/                # LLM客户端
+│   ├── prompts/            # 提示词工程系统
+│   ├── skills/             # 题材技能加载器
+│   ├── store/              # 文件存储管理
+│   ├── tasks/              # Celery异步任务
+│   ├── utils/              # 工具函数
+│   └── workflow/           # 工作流引擎
+├── frontend/               # 前端代码
+│   └── src/
+│       ├── App.tsx         # 主应用
+│       └── main.tsx        # 入口
+├── skills/                 # 题材技能包（25种）
+├── docs/                   # 文档
+├── docker-compose.yml      # Docker编排
+├── Dockerfile.backend      # 后端镜像
+└── Dockerfile.frontend     # 前端镜像
 ```
 
-## 🔧 代码优化亮点
+### 添加新题材
 
-### 1. 工作流优化
-- 使用LangGraph实现状态机，支持复杂的条件路由
-- 续写章节工作流支持打回重试机制，最多3次重试
-- 优化的状态管理，确保状态在节点间正确传播
+1. 在 `skills/` 目录创建新文件夹：
+```bash
+mkdir skills/new-genre-novelist
+```
 
-### 2. 错误处理增强
-- 增加API调用重试机制，支持指数退避
-- 完善的异常处理和日志记录
-- 状态安全获取，避免KeyError
+2. 创建 `SKILL.md` 文件：
+```markdown
+# 新题材专家
 
-### 3. 性能优化
-- 使用Streamlit缓存机制优化前端性能
-- 数据库查询优化，减少重复查询
-- 文件操作优化，批量写入减少IO
+## 核心智模型
+[题材特征描述]
 
-### 4. 代码质量提升
-- 完善的类型提示（TypedDict）
-- 模块化设计，职责清晰
-- 详细的日志记录，便于调试和追踪
+## 表达DNA
+[文风指导]
 
-## 🗄️ 数据库模型
+## 决策启发式
+[创作规则]
+```
 
-### Book模型
+3. 在 `skills/loader.py` 的 `GENRE_TO_SKILL_MAP` 中添加映射：
 ```python
-class Book(Base):
-    __tablename__ = "books"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    genre = Column(String(100), nullable=False)
-    platform = Column(String(100), nullable=False)
-    chapter_words = Column(Integer, nullable=False, default=3000)
-    target_chapters = Column(Integer, nullable=False, default=20)
-    outline = Column(Text, nullable=False)
-    story_bible = Column(Text, nullable=False)
-    volume_outline = Column(Text, nullable=False)
-    book_rules = Column(Text, nullable=False)
-    current_state = Column(Text)
-    pending_hooks = Column(Text)
-    subplot_board = Column(Text)
-    emotional_arcs = Column(Text)
-    character_matrix = Column(Text)
-    chapter_summaries = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+"new_genre": "new-genre-novelist",
 ```
 
-### Chapter模型
+### 添加新提示词
+
+1. 在 `prompts/templates/` 创建 YAML 文件：
+```yaml
+name: agent/new_prompt
+version: "1.0.0"
+description: 新提示词描述
+
+parameters:
+  param1:
+    type: string
+    required: true
+
+system_template: |
+  系统提示词内容
+
+user_template: |
+  用户提示词 {{ param1 }}
+
+activate: true
+```
+
+2. 在 Agent 中使用：
 ```python
-class Chapter(Base):
-    __tablename__ = "chapters"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    book_id = Column(Integer, ForeignKey("books.id"), nullable=False)
-    chapter_number = Column(Integer, nullable=False)
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
-    chapter_outline = Column(Text)
-    word_count = Column(Integer, nullable=False)
-    audit_score = Column(Float)
-    continuity_score = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+system, user = self._render_prompt("agent/new_prompt", {"param1": "value"})
 ```
 
-## 🤖 Agent 详细说明
-
-### 1. 架构师 (ArchitectAgent)
-
-**核心方法**：
-- `generate_foundation(book_data, external_context)`：生成书籍基础设定，包括故事圣经、卷纲等
-- `plan_chapter(book_data, chapter_num, current_state, previous_chapter_summary, external_context)`：规划章节内容
-- `analyze_outline_impact(old_outline, new_outline, book_data, outline_context)`：分析大纲变化对现有章节的影响
-- `update_book_state(book_data, chapter_num, chapter_content, chapter_summary, current_state, pending_hooks)`：更新书籍状态文件
-
-**职责**：
-- 负责根据大纲和现有内容，规划章节内容
-- 分析大纲变化对现有章节的影响
-- 更新书籍的各种状态文件
-
-### 2. 写手 (WriterAgent)
-
-**核心方法**：
-- `write_chapter(input_data)`：生成章节内容，输入为WriteChapterInput对象
-- `check_chapter_outline(chapter_outline, book_data)`：检查章节大纲是否合理
-- `_settle(data)`：状态结算，更新各种状态
-- `_validate_post_write(content, genre_profile, book_rules)`：写后验证，检查规则违反
-
-**职责**：
-- 根据架构师的规划，生成章节内容
-- 检查大纲是否合理，不合理则给出建议
-- 更新角色情感状态、伏笔等
-
-### 3. 连续性检查器 (ContinuityAuditor)
-
-**核心方法**：
-- `check_consistency(chapter_content, previous_chapter_content, book)`：检查章节连续性
-
-**职责**：
-- 检查章节之间的情节连贯性
-- 检查角色行为和情感的一致性
-- 检查场景描述的一致性
-
-### 4. 审核编辑 (AuditorAgent)
-
-**核心方法**：
-- `score_chapter(content, book)`：给章节打分
-
-**职责**：
-- 对章节内容进行多维度评分
-- 分析语言质量、情节结构、角色深度等
-- 给出改进建议
-
-## 🔄 工作流执行顺序
-
-### 1. 创建新书
-
-**执行顺序**：
-1. **用户输入**：书名、题材、平台、每章字数、总章节数等
-2. **架构师**：根据输入生成基础设定，包括故事圣经、卷纲、书籍规则等
-3. **系统**：
-   - 保存书籍信息到数据库
-   - 创建书籍目录结构
-   - 保存基础设定文件到文件系统
-
-### 2. 续写下一章（带打回重试）
-
-**执行顺序**：
-1. **用户输入**：可选的创作指导、本章字数
-2. **架构师**：根据现有MD文件和创作指导，规划本章内容
-3. **写手**：检查章节大纲是否合理（不合理→打回Architect，最多3次）
-4. **写手**：根据架构师的规划，生成章节内容
-5. **连续性检查器**：检查章节与前一章的连贯性（有问题→打回Writer，最多3次）
-6. **审核编辑**：对章节内容进行评分（<80分→打回Architect，最多3次）
-7. **架构师**：根据章节内容，更新各种状态文件
-8. **系统**：
-   - 保存章节信息到数据库
-   - 保存章节内容和更新后的状态文件到文件系统
-
-### 3. 重写1章
-
-**执行顺序**：
-1. **用户输入**：要重写的章节、可选的创作指导
-2. **架构师**：根据现有MD文件和创作指导，重新规划章节内容
-3. **写手**：检查章节大纲是否合理
-4. **写手**：根据架构师的规划，生成新的章节内容
-5. **连续性检查器**：检查章节与前后章节的连贯性
-6. **审核编辑**：对章节内容进行评分，检查是否符合要求
-7. **架构师**：根据章节内容，更新各种状态文件
-8. **系统**：
-   - 更新数据库中的章节信息
-   - 保存重写后的章节内容和更新后的状态文件到文件系统
-
-### 4. 从第n章开始重写
-
-**执行顺序**：
-1. **用户输入**：开始重写的章节、可选的创作指导
-2. **系统**：删除数据库和文件系统中n章及以后的所有章节内容
-3. **架构师**：根据现有MD文件和创作指导，重新规划第n章内容
-4. **写手**：检查章节大纲是否合理
-5. **写手**：根据架构师的规划，生成第n章内容
-6. **连续性检查器**：检查章节与前一章的连贯性
-7. **审核编辑**：对章节内容进行评分，检查是否符合要求
-8. **架构师**：根据章节内容，更新各种状态文件
-9. **系统**：
-   - 保存第n章信息到数据库
-   - 保存第n章内容和更新后的状态文件到文件系统
-
-### 5. 修改故事大纲
-
-**执行顺序**：
-1. **用户输入**：新的大纲内容
-2. **架构师**：分析大纲变化对现有章节的影响
-3. **系统**：根据架构师的分析，给出建议
-   - 如果影响超过50%，建议重开一本书
-   - 如果影响较大，建议删除后面的章节并重新生成
-   - 如果影响较小，直接修改大纲
-4. **用户确认**：确认是否修改大纲
-5. **系统**：根据用户确认，执行相应操作
-6. **架构师**：更新相关的MD文件
-
-## 📦 安装步骤
-
-### 1. 克隆项目
+### 运行测试
 
 ```bash
-git clone <项目地址>
-cd novel-write
+# 后端测试
+cd backend
+pytest tests/ -v
+
+# 前端测试
+cd frontend
+npm run test
 ```
 
-### 2. 安装依赖
+---
 
-```bash
-pip install -r requirements.txt
-```
+## 许可证
 
-### 3. 配置环境变量
+MIT License
 
-复制 `.env.example` 文件为 `.env`，并填写相应的配置：
+---
 
-```bash
-cp .env.example .env
-```
+## 贡献
 
-编辑 `.env` 文件，配置以下内容：
-
-- `INKOS_LLM_API_KEY`：LLM API密钥
-- `INKOS_LLM_BASE_URL`：LLM API基础URL
-- `INKOS_LLM_MODEL`：LLM模型名称
-
-### 4. 初始化数据库
-
-```bash
-python -m src.db.init_db
-```
-
-## 🎯 使用方法
-
-### 1. 启动应用
-
-```bash
-streamlit run app.py
-```
-
-### 2. 创建新书
-
-- 输入书名、题材、平台、每章字数、总章节数等信息
-- 可选：参考大纲、参考作者文笔
-- 点击「创建书籍」按钮
-
-### 3. 续写小说
-
-- 选择已创建的书籍
-- 输入可选的提示词（如增加人物等）
-- 点击「续写下一章」按钮
-
-### 4. 重写章节
-
-- 选择已创建的书籍
-- 选择要重写的章节
-- 输入可选的提示词
-- 点击「重写章节」按钮
-
-### 5. 从指定章节开始重写
-
-- 选择已创建的书籍
-- 选择开始重写的章节
-- 输入可选的提示词
-- 点击「从该章节开始重写」按钮
-
-### 6. 修改故事大纲
-
-- 选择已创建的书籍
-- 输入新的大纲内容
-- 点击「修改大纲」按钮
-
-## 🧪 运行测试
-
-### 运行工作流测试
-
-```bash
-python test/test_workflow.py
-```
-
-测试脚本会执行以下操作：
-1. 创建一本新书
-2. 续写下一章
-3. 验证所有步骤是否成功完成
-
-## 📝 日志管理
-
-系统会在 `logs` 目录下生成以下日志文件：
-
-- `agent_YYYY-MM-DD.log`：Agent日志，记录各个Agent的执行情况
-- `workflow_YYYY-MM-DD.log`：工作流日志，记录工作流的执行步骤和数据库操作
-
-## 📚 MD文件管理
-
-在应用的「MD文件管理」标签页中，您可以查看和编辑所有的MD文件，包括：
-
-### 静态设定文件
-- **故事圣经**：小说设定、世界观、男女主角、修炼体系/都市体系、规则等
-- **卷纲**：所有章节划分、几卷、每卷多少章、什么内容、大纲、所有支线等
-- **书籍规则**：写作规则、禁止出现的内容、写作特点等
-
-### 动态状态文件
-- **当前状态**：当前状态、所处地点、涉及的人物、所处支线
-- **伏笔池**：设定的钩子和伏笔、预计哪里填坑、当前状态是否填坑
-- **支线进度板**：支线进度
-- **情感弧线**：角色的情感状态、各个主角当前的情感状态、以及造成的原因
-- **角色交互矩阵**：角色矩阵、各个角色的交集和关系
-
-## 🔧 技术栈
-
-- **前端**：Streamlit
-- **后端**：Python
-- **LLM集成**：LangChain + LangGraph
-- **数据库**：SQLite + SQLAlchemy ORM
-- **文件存储**：本地文件系统（MD文件）
-
-## 🏛️ 架构设计
-
-### 分层架构
-1. **前端层**：Streamlit界面，只与workflow层交互
-2. **工作流层**：使用LangGraph实现工作流，协调各个Agent
-3. **Agent层**：使用LangChain实现各个专业Agent
-4. **数据层**：SQLAlchemy ORM + 文件系统
-
-### Agent继承体系
-- **BaseAgent**：基类，封装LangChain的LLM调用逻辑
-- **ArchitectAgent**：继承自BaseAgent，负责章节规划
-- **WriterAgent**：继承自BaseAgent，负责内容生成
-- **ContinuityAuditor**：继承自BaseAgent，负责连续性检查
-- **AuditorAgent**：继承自BaseAgent，负责内容审核
-
-### 工作流状态管理
-- 使用LangGraph的状态图管理复杂工作流
-- 每个工作流节点返回完整的状态字典
-- 确保状态在节点间正确传播
-
-## 🤝 贡献
-
-欢迎提交Issue和Pull Request来改进这个项目！
-
-## 📄 许可证
-
-本项目采用MIT许可证。
+欢迎提交 Issue 和 Pull Request！

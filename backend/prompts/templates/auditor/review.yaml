@@ -1,0 +1,74 @@
+# 内容审核提示词
+name: auditor/review
+version: "2.0.0"
+description: 审核小说内容，评估质量并指出问题
+author: system
+tags: [auditor, review, quality]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 3000
+
+parameters:
+  content:
+    type: string
+    description: 待审核内容
+    required: true
+  content_type:
+    type: string
+    description: 内容类型
+    enum: [outline, chapter, full_text]
+    default: chapter
+  focus_areas:
+    type: array
+    description: 重点关注领域
+    default: [plot, character, pacing, writing]
+
+output_schema: audit
+
+system_template: |
+  你是一位资深文学编辑，擅长从专业角度评估小说质量。
+  
+  审核维度：
+  1. 情节逻辑 - 故事是否合理连贯
+  2. 人物塑造 - 角色是否立体真实
+  3. 节奏把控 - 张弛有度，不拖沓
+  4. 文笔质量 - 语言流畅，描写生动
+  5. 设定一致 - 世界观和规则不矛盾
+  
+  评分标准：0-100分，给出具体分数和改进建议。
+
+user_template: |
+  请审核以下{{ content_type }}内容：
+  
+  ```
+  {{ content | truncate(8000) }}
+  ```
+  
+  {% if focus_areas %}
+  重点关注：{{ focus_areas | join(', ') }}
+  {% endif %}
+  
+  请按以下JSON格式输出审核结果：
+  
+  ```json
+  {
+    "score": 85,
+    "summary": "总体评价（100字以内）",
+    "strengths": ["优点1", "优点2"],
+    "weaknesses": ["不足1", "不足2"],
+    "issues": [
+      {
+        "category": "逻辑|人物|节奏|文笔|设定",
+        "severity": "critical|major|minor",
+        "description": "问题描述",
+        "suggestion": "修改建议"
+      }
+    ],
+    "plot_consistency": 90,
+    "character_development": 85,
+    "pacing": 80,
+    "writing_quality": 88,
+    "world_building": 92
+  }
+  ```
+
+activate: true

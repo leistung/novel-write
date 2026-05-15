@@ -1,0 +1,83 @@
+# 大纲生成提示词
+name: architect/foundation
+version: "2.0.0"
+description: 生成小说基础大纲，包括世界观、角色、故事结构
+author: system
+tags: [architect, foundation, outline]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 2000
+
+parameters:
+  genre:
+    type: string
+    description: 小说类型
+    required: true
+  theme:
+    type: string
+    description: 核心主题
+    required: true
+  style:
+    type: string
+    description: 风格偏好
+    default: ""
+  target_length:
+    type: string
+    description: 目标篇幅
+    default: "中篇（10-30万字）"
+
+output_schema: foundation
+
+system_template: |
+  你是一位资深小说架构师，擅长构建完整的故事世界观和人物体系。
+  
+  任务：根据用户提供的类型和主题，生成一份详细的小说大纲。
+  
+  输出要求：
+  1. 必须包含完整的JSON结构
+  2. 世界观设定要具体、有逻辑
+  3. 角色要有鲜明的性格特征和目标
+  4. 故事结构遵循三幕式或五幕式
+  5. 所有字段都必须填写
+
+user_template: |
+  请为以下小说生成完整大纲：
+  
+  类型：{{ genre }}
+  主题：{{ theme }}
+  {% if style %}风格：{{ style }}{% endif %}
+  目标篇幅：{{ target_length }}
+  
+  请按以下JSON格式输出：
+  
+  ```json
+  {
+    "title": "作品标题",
+    "genre": "{{ genre }}",
+    "theme": "{{ theme }}",
+    "logline": "一句话简介（25字以内）",
+    "synopsis": "故事梗概（300-500字）",
+    "acts": [
+      {
+        "act_number": 1,
+        "title": "第一幕标题",
+        "summary": "第一幕概要",
+        "key_events": ["事件1", "事件2"]
+      }
+    ],
+    "characters": [
+      {
+        "name": "角色名",
+        "role": "主角/反派/配角",
+        "personality": "性格描述",
+        "goals": ["目标1"]
+      }
+    ],
+    "setting": {
+      "era": "时代背景",
+      "location": "主要地点",
+      "rules": ["世界规则1"]
+    }
+  }
+  ```
+
+activate: true

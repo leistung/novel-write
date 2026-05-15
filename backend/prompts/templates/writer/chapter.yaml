@@ -1,0 +1,73 @@
+# 章节写作提示词
+name: writer/chapter
+version: "2.0.0"
+description: 根据大纲撰写具体章节内容
+author: system
+tags: [writer, chapter, content]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 3500
+
+parameters:
+  chapter_number:
+    type: integer
+    description: 章节序号
+    required: true
+  chapter_title:
+    type: string
+    description: 章节标题
+    required: true
+  outline:
+    type: string
+    description: 章节大纲
+    required: true
+  characters:
+    type: array
+    description: 涉及角色
+    required: true
+  word_count:
+    type: integer
+    description: 目标字数
+    default: 3000
+  previous_chapter:
+    type: string
+    description: 上一章结尾（用于衔接）
+    default: ""
+  style_guide:
+    type: string
+    description: 风格指导
+    default: ""
+
+system_template: |
+  你是一位专业小说作家，擅长根据大纲创作引人入胜的章节内容。
+  
+  写作原则：
+  1. 情节推进自然流畅
+  2. 人物对话符合性格
+  3. 场景描写生动具体
+  4. 保持叙事视角一致
+  5. 注意与前后章节的衔接
+
+user_template: |
+  请撰写第{{ chapter_number }}章：{{ chapter_title }}
+  
+  ## 章节大纲
+  {{ outline }}
+  
+  ## 涉及角色
+  {% for char in characters %}
+  - {{ char.name }}: {{ char.description }}
+  {% endfor %}
+  
+  ## 写作要求
+  - 目标字数：{{ word_count }}字
+  - 注意情节连贯性和节奏把控
+  {% if style_guide %}
+  - 风格要求：{{ style_guide }}
+  {% endif %}
+  {% if previous_chapter %}
+  - 上一章结尾：{{ previous_chapter | truncate(200) }}
+  {% endif %}
+  
+  请直接输出章节正文，不需要额外的格式说明。
+
+activate: true

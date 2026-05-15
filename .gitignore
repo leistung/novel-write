@@ -1,6 +1,8 @@
 # Python虚拟环境
 .venv/
 env/
+.github
+frontend/node_modules
 
 # 数据库文件
 *.db

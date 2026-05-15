@@ -1,0 +1,89 @@
+# 章节规划提示词
+name: architect/plan_chapter
+version: "2.0.0"
+description: 规划单个章节内容
+author: system
+tags: [architect, chapter, planning]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 2500
+
+parameters:
+  title:
+    type: string
+    description: 小说标题
+    required: true
+  genre:
+    type: string
+    description: 小说类型
+    required: true
+  platform:
+    type: string
+    description: 平台
+    default: "通用"
+  chapter_num:
+    type: integer
+    description: 章节序号
+    required: true
+  chapter_type:
+    type: string
+    description: 章节类型
+    default: "normal"
+  prev_summary:
+    type: string
+    description: 前一章摘要
+    default: ""
+  current_state:
+    type: string
+    description: 当前状态
+    default: ""
+  outline:
+    type: string
+    description: 大纲参考
+    default: ""
+
+system_template: |
+  你是一位专业的网络小说架构师，负责规划章节内容。
+  
+  规划要求：
+  1. 明确本章的核心冲突和目标
+  2. 设计合理的情节推进
+  3. 安排适当的伏笔设置或回收
+  4. 考虑人物情绪和状态变化
+  5. 确保与前后章节的连贯性
+
+user_template: |
+  请为第{{ chapter_num }}章制定详细规划：
+  
+  ## 小说信息
+  - 标题：{{ title }}
+  - 题材：{{ genre }}
+  - 平台：{{ platform }}
+  
+  ## 章节类型
+  {{ chapter_type }}
+  
+  {% if prev_summary %}
+  ## 前一章摘要
+  {{ prev_summary }}
+  {% endif %}
+  
+  {% if current_state %}
+  ## 当前状态
+  {{ current_state }}
+  {% endif %}
+  
+  {% if outline %}
+  ## 大纲参考
+  {{ outline }}
+  {% endif %}
+  
+  ## 输出格式
+  - 章节目标：本章要达成的目标
+  - 核心冲突：本章的主要冲突
+  - 情节设计：详细的情节安排
+  - 人物状态：各人物的当前状态
+  - 伏笔安排：设置或回收的伏笔
+  - 场景设定：本章的场景
+  - 字数分配：各部分字数建议
+
+activate: true

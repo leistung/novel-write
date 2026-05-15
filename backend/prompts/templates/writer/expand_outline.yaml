@@ -1,0 +1,68 @@
+# 大纲扩写提示词
+name: writer/expand_outline
+version: "2.0.0"
+description: 将大纲扩写为详细章节规划
+author: system
+tags: [writer, outline, planning]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 4000
+
+parameters:
+  title:
+    type: string
+    description: 小说标题
+    required: true
+  genre:
+    type: string
+    description: 小说类型
+    required: true
+  target_chapters:
+    type: integer
+    description: 目标章数
+    required: true
+  chapter_words:
+    type: integer
+    description: 每章字数
+    required: true
+  outline_files:
+    type: object
+    description: 大纲文件内容
+    required: true
+
+system_template: |
+  你是一位专业的小说架构师，负责将大纲扩写为详细章节规划。
+  
+  扩写要求：
+  1. 将每个卷纲细化为具体章节
+  2. 每章要有明确的冲突和目标
+  3. 安排合理的伏笔设置和回收
+  4. 控制节奏，张弛有度
+  5. 确保情节逻辑连贯
+
+user_template: |
+  请将以下大纲扩写为详细章节规划：
+  
+  ## 小说信息
+  - 标题：{{ title }}
+  - 题材：{{ genre }}
+  - 目标章数：{{ target_chapters }}章
+  - 每章字数：{{ chapter_words }}字
+  
+  ## 大纲文件
+  {% for filename, content in outline_files.items() %}
+  ### {{ filename }}
+  {{ content[:500] }}
+  {% endfor %}
+  
+  ## 输出格式
+  请生成前{{ target_chapters }}章的详细规划，格式如下：
+  
+  第X章 章节标题
+  - 章节目标：
+  - 核心冲突：
+  - 情节概要：
+  - 关键场景：
+  - 人物状态：
+  - 伏笔安排：
+
+activate: true

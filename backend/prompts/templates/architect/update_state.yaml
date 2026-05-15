@@ -1,0 +1,74 @@
+# 更新书籍状态提示词
+name: architect/update_state
+version: "2.0.0"
+description: 根据新章节内容更新书籍追踪状态
+author: system
+tags: [architect, state, tracking]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 2500
+
+parameters:
+  title:
+    type: string
+    description: 小说标题
+    required: true
+  genre:
+    type: string
+    description: 小说类型
+    required: true
+  chapter_num:
+    type: integer
+    description: 章节序号
+    required: true
+  current_state:
+    type: string
+    description: 当前状态
+    default: ""
+  pending_hooks:
+    type: string
+    description: 当前伏笔池
+    default: ""
+  chapter_content:
+    type: string
+    description: 新章节内容
+    required: true
+
+system_template: |
+  你是一位专业的小说状态追踪分析师。
+  
+  需要更新的状态：
+  1. current_state：当前位置、主角状态、当前目标
+  2. pending_hooks：伏笔池（新增、推进、回收的伏笔）
+  3. character_matrix：角色交互矩阵（关系变化、信息边界）
+  4. emotional_arcs：情感弧线进展
+  5. subplot_board：支线进度
+
+user_template: |
+  请根据第{{ chapter_num }}章内容更新书籍状态：
+  
+  ## 小说信息
+  - 标题：{{ title }}
+  - 题材：{{ genre }}
+  
+  {% if current_state %}
+  ## 当前状态
+  {{ current_state }}
+  {% endif %}
+  
+  {% if pending_hooks %}
+  ## 当前伏笔池
+  {{ pending_hooks }}
+  {% endif %}
+  
+  ## 新章节内容（前2000字）
+  {{ chapter_content[:2000] }}
+  
+  ## 输出格式
+  使用 === SECTION: <name> === 分隔各部分：
+  - === SECTION: current_state ===
+  - === SECTION: pending_hooks ===
+  - === SECTION: character_matrix ===
+  - === SECTION: emotional_arcs ===
+  - === SECTION: subplot_board ===
+
+activate: true

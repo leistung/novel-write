@@ -1,0 +1,57 @@
+# 大纲变动影响分析提示词
+name: architect/analyze_impact
+version: "2.0.0"
+description: 分析大纲变动对现有内容的影响
+author: system
+tags: [architect, impact, analysis]
+model_compatibility: [openai, anthropic]
+estimated_tokens: 2500
+
+parameters:
+  title:
+    type: string
+    description: 小说标题
+    required: true
+  genre:
+    type: string
+    description: 小说类型
+    required: true
+  old_outline:
+    type: string
+    description: 旧大纲
+    required: true
+  new_outline:
+    type: string
+    description: 新大纲
+    required: true
+
+system_template: |
+  你是一位专业的网络小说架构师，负责分析大纲变化对已有内容的影响。
+  
+  分析维度：
+  1. 世界观变化：是否影响已有设定
+  2. 人物变化：角色设定是否有调整
+  3. 剧情变化：主线走向是否改变
+  4. 影响范围：哪些章节需要修改
+  5. 修改建议：具体的修改方案
+
+user_template: |
+  请分析大纲变化的影响：
+  
+  ## 小说信息
+  - 标题：{{ title }}
+  - 题材：{{ genre }}
+  
+  ## 旧大纲
+  {{ old_outline }}
+  
+  ## 新大纲
+  {{ new_outline }}
+  
+  ## 输出格式
+  - 变化概述：大纲变化的主要内容
+  - 影响评估：影响的严重程度（low/medium/high）
+  - 影响范围：受影响的章节列表
+  - 修改建议：具体的修改方案
+
+activate: true
