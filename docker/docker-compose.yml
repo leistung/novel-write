@@ -1,0 +1,196 @@
+# StoryClaw 核心编排
+# 核心服务: postgres redis etcd minio milvus neo4j backend frontend
+# Agent 运行时统一由 backend 进程加载 packages/storyclaw（不再单独部署 langgraph-server）
+# 可选服务(profile: infra): nginx
+# 用法:
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d            # 核心
+#   docker compose --env-file .env --profile infra -f docker/docker-compose.yml up -d  # 含 nginx
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: storyclaw-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-storyclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storyclaw_dev_pwd}
+      POSTGRES_DB: ${POSTGRES_DB:-storyclaw}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-pg.sql:/docker-entrypoint-initdb.d/init-pg.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storyclaw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: storyclaw-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: storyclaw-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=periodic
+      - ETCD_AUTO_COMPACTION_RETENTION=0
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    container_name: storyclaw-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-storyclaw}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-storyclaw_minio_pwd}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  milvus:
+    image: milvusdb/milvus:v2.4.13
+    container_name: storyclaw-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-storyclaw}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-storyclaw_minio_pwd}
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.23-community
+    container_name: storyclaw-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-storyclaw_neo4j_pwd}
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-storyclaw_neo4j_pwd} 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: storyclaw-backend
+    env_file: ../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MILVUS_HOST: ${MILVUS_HOST}
+      MILVUS_PORT: ${MILVUS_PORT}
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      SKILLS_DIR: /app/skills
+      # 开发/测试：EMBEDDING_MODE=hash 使用内置伪向量，无需外部 embedding 服务
+      EMBEDDING_MODE: ${EMBEDDING_MODE:-}
+      PYTHONPATH: /app/storyclaw_src:/app/backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app/backend
+      - ../configs:/app/configs:ro
+      - ../skills:/app/skills:ro
+      - ../packages/storyclaw/src:/app/storyclaw_src:ro
+    working_dir: /app/backend
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+      neo4j:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    container_name: storyclaw-frontend
+    environment:
+      # 容器内用服务名访问 backend（vite proxy target）
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://backend:8000}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app/frontend
+      - /app/frontend/node_modules
+    working_dir: /app/frontend
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: storyclaw-nginx
+    profiles: ["infra"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  neo4j_data:

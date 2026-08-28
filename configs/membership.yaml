@@ -1,0 +1,27 @@
+# 会员充值配置
+# period: monthly | quarterly | yearly
+memberships:
+  - id: monthly
+    name: "月度会员"
+    period: monthly
+    duration_days: 30
+    price_cny: 30
+    bonus_credits: 500
+    enabled: true
+  - id: quarterly
+    name: "季度会员"
+    period: quarterly
+    duration_days: 90
+    price_cny: 80
+    bonus_credits: 1800
+    enabled: true
+  - id: yearly
+    name: "年度会员"
+    period: yearly
+    duration_days: 365
+    price_cny: 298
+    bonus_credits: 8000
+    enabled: true
+
+defaults:
+  currency_unit: "CNY"

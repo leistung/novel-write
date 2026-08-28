@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "storyclaw": "./src/storyclaw/graph.py:graph"
+  },
+  "env": ".env"
+}

@@ -1,8 +1,45 @@
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
 .venv/
-.data/
-.log/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+.npm
+.vite/
+
+# Env & secrets
 .env
-.git
-.idea
-novel-write.db
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Data & logs
+data/
+logs/
+*.log
+*.db
+*.sqlite3
+
+# Uploads
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Volumes (local dev data)
+volumes/
